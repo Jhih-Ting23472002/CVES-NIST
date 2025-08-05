@@ -361,18 +361,6 @@ graph TD
     D --> E[Export Options]
     E --> F[JSON/CSV/HTML Export]
 ```
-
----
-
-## Support / 支援
-
-For issues and questions, please:
-如有問題請：
-
-- 🐛 [Report bugs / 回報錯誤](https://github.com/your-repo/issues)
-- 💡 [Request features / 功能請求](https://github.com/your-repo/issues)
-- 📖 [Read documentation / 閱讀文檔](https://github.com/your-repo/wiki)
-
 ---
 
 ## Changelog / 更新日誌
