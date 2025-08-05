@@ -1,0 +1,209 @@
+<div class="upload-container">
+  <mat-card class="upload-card">
+    <mat-card-header>
+      <mat-card-title>
+        <mat-icon>security</mat-icon>
+        CVE 安全掃描工具
+      </mat-card-title>
+      <mat-card-subtitle>上傳您的 package.json 檔案進行安全漏洞掃描</mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content>
+      <mat-stepper #stepper linear>
+        <!-- 步驟 1: 檔案選擇 -->
+        <mat-step [stepControl]="fileSelectionForm" label="選擇檔案">
+          <form [formGroup]="fileSelectionForm">
+            <div class="upload-zone" 
+                 [class.drag-over]="isDragOver"
+                 (dragover)="onDragOver($event)"
+                 (dragleave)="onDragLeave($event)"
+                 (drop)="onDrop($event)"
+                 (click)="triggerFileInput()">
+              
+              <input #fileInput 
+                     type="file" 
+                     accept=".json"
+                     (change)="onFileSelected($event)"
+                     style="display: none;">
+              
+              <div class="upload-content">
+                <mat-icon class="upload-icon">upload</mat-icon>
+                <h3>拖拽檔案至此或點擊選擇</h3>
+                <p>僅支援 package.json 檔案</p>
+                <p class="file-size-hint">最大檔案大小: 10MB</p>
+              </div>
+            </div>
+
+            <div class="selected-file" *ngIf="selectedFile">
+              <mat-icon>description</mat-icon>
+              <span>{{ selectedFile.name }}</span>
+              <span class="file-size">({{ formatFileSize(selectedFile.size) }})</span>
+              <button mat-icon-button (click)="removeFile()" matTooltip="移除檔案">
+                <mat-icon>close</mat-icon>
+              </button>
+            </div>
+
+            <div class="step-actions">
+              <button mat-raised-button 
+                      color="primary" 
+                      [disabled]="!selectedFile"
+                      (click)="validateFile()">
+                <mat-icon>check_circle</mat-icon>
+                驗證檔案
+              </button>
+            </div>
+          </form>
+        </mat-step>
+
+        <!-- 步驟 2: 檔案驗證 -->
+        <mat-step [stepControl]="validationForm" label="檔案驗證">
+          <form [formGroup]="validationForm">
+            <div class="validation-section">
+              <div class="validation-status" *ngIf="validationResult">
+                <div class="status-header" [class]="validationResult.isValid ? 'valid' : 'invalid'">
+                  <mat-icon>{{ validationResult.isValid ? 'check_circle' : 'error_outline' }}</mat-icon>
+                  <h3>{{ validationResult.isValid ? '檔案驗證成功' : '檔案驗證失敗' }}</h3>
+                </div>
+
+                <div class="validation-details" *ngIf="validationResult.isValid">
+                  <p>✅ 檔案格式正確</p>
+                  <p>✅ 包含相依性資訊</p>
+                  <p>✅ 總共找到 {{ packages.length }} 個套件</p>
+                </div>
+
+                <div class="validation-errors" *ngIf="!validationResult.isValid">
+                  <h4>發現的問題：</h4>
+                  <ul>
+                    <li *ngFor="let error of validationResult.errors">{{ error }}</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div class="loading-spinner" *ngIf="isValidating">
+                <mat-spinner diameter="50"></mat-spinner>
+                <p>正在驗證檔案...</p>
+              </div>
+            </div>
+
+            <div class="step-actions">
+              <button mat-button matStepperPrevious>
+                <mat-icon>arrow_back</mat-icon>
+                上一步
+              </button>
+              <button mat-raised-button 
+                      color="primary" 
+                      [disabled]="!validationResult?.isValid"
+                      matStepperNext>
+                <mat-icon>arrow_forward</mat-icon>
+                下一步
+              </button>
+            </div>
+          </form>
+        </mat-step>
+
+        <!-- 步驟 3: 套件清單 -->
+        <mat-step label="套件清單">
+          <div class="packages-section">
+            <div class="packages-summary">
+              <h3>檢測到的套件</h3>
+              <div class="summary-chips">
+                <mat-chip-set>
+                  <mat-chip class="dependency-chip">
+                    <mat-icon>folder</mat-icon>
+                    主要相依 {{ getDependencyCount('dependency') }}
+                  </mat-chip>
+                  <mat-chip class="dev-dependency-chip">
+                    <mat-icon>build</mat-icon>
+                    開發相依 {{ getDependencyCount('devDependency') }}
+                  </mat-chip>
+                </mat-chip-set>
+              </div>
+            </div>
+
+            <div class="packages-table">
+              <table mat-table [dataSource]="packages" class="packages-table">
+                <ng-container matColumnDef="name">
+                  <th mat-header-cell *matHeaderCellDef>套件名稱</th>
+                  <td mat-cell *matCellDef="let package">{{ package.name }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="version">
+                  <th mat-header-cell *matHeaderCellDef>版本</th>
+                  <td mat-cell *matCellDef="let package">{{ package.version }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="type">
+                  <th mat-header-cell *matHeaderCellDef>類型</th>
+                  <td mat-cell *matCellDef="let package">
+                    <mat-chip [class]="package.type === 'dependency' ? 'type-prod' : 'type-dev'">
+                      {{ package.type === 'dependency' ? '正式' : '開發' }}
+                    </mat-chip>
+                  </td>
+                </ng-container>
+
+                <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+                <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+              </table>
+            </div>
+
+            <div class="step-actions">
+              <button mat-button matStepperPrevious>
+                <mat-icon>arrow_back</mat-icon>
+                上一步
+              </button>
+              <button mat-raised-button 
+                      color="accent" 
+                      (click)="startScan()"
+                      [disabled]="packages.length === 0">
+                <mat-icon>play_arrow</mat-icon>
+                開始掃描 ({{ packages.length }} 個套件)
+              </button>
+            </div>
+          </div>
+        </mat-step>
+      </mat-stepper>
+    </mat-card-content>
+  </mat-card>
+
+  <!-- 幫助資訊 -->
+  <mat-card class="help-card">
+    <mat-card-header>
+      <mat-card-title>
+        <mat-icon>help_outline</mat-icon>
+        如何使用
+      </mat-card-title>
+    </mat-card-header>
+    <mat-card-content>
+      <div class="help-steps">
+        <div class="help-step">
+          <mat-icon>upload_file</mat-icon>
+          <div>
+            <h4>1. 上傳檔案</h4>
+            <p>選擇您專案根目錄的 package.json 檔案</p>
+          </div>
+        </div>
+        <div class="help-step">
+          <mat-icon>verified</mat-icon>
+          <div>
+            <h4>2. 檔案驗證</h4>
+            <p>系統會自動驗證檔案格式和內容</p>
+          </div>
+        </div>
+        <div class="help-step">
+          <mat-icon>list</mat-icon>
+          <div>
+            <h4>3. 套件清單</h4>
+            <p>檢視所有偵測到的相依性套件</p>
+          </div>
+        </div>
+        <div class="help-step">
+          <mat-icon>security</mat-icon>
+          <div>
+            <h4>4. 安全掃描</h4>
+            <p>開始進行 CVE 漏洞掃描和分析</p>
+          </div>
+        </div>
+      </div>
+    </mat-card-content>
+  </mat-card>
+</div>

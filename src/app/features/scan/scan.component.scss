@@ -1,0 +1,160 @@
+.scan-container {
+  max-width: 800px;
+  margin: 2rem auto;
+  padding: 1rem;
+}
+
+.progress-section {
+  text-align: center;
+  padding: 2rem;
+}
+
+.progress-info {
+  margin-bottom: 1rem;
+
+  p {
+    margin: 0.5rem 0;
+    font-size: 1rem;
+
+    &:first-child {
+      font-weight: bold;
+      color: #333;
+    }
+  }
+}
+
+mat-progress-bar {
+  height: 8px;
+  border-radius: 4px;
+  margin: 1rem 0;
+}
+
+.progress-text {
+  margin-top: 1rem;
+  font-weight: bold;
+  font-size: 1.1rem;
+  color: #1976d2;
+}
+
+.results-summary {
+  margin-bottom: 2rem;
+}
+
+.summary-stats {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem;
+  border-radius: 8px;
+  min-width: 80px;
+
+  &.critical {
+    background-color: #ffebee;
+    color: #c62828;
+  }
+
+  &.high {
+    background-color: #fff3e0;
+    color: #ef6c00;
+  }
+
+  &.medium {
+    background-color: #fff3e0;
+    color: #e65100;
+  }
+
+  &.low {
+    background-color: #e8f5e8;
+    color: #2e7d32;
+  }
+
+  &.safe {
+    background-color: #e3f2fd;
+    color: #1565c0;
+  }
+
+  .count {
+    font-size: 1.5rem;
+    font-weight: bold;
+  }
+
+  .label {
+    font-size: 0.8rem;
+  }
+}
+
+.vulnerability-table {
+  width: 100%;
+  margin-top: 1rem;
+}
+
+.severity-badge {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: bold;
+
+  &.critical {
+    background-color: #c62828;
+    color: white;
+  }
+
+  &.high {
+    background-color: #ef6c00;
+    color: white;
+  }
+
+  &.medium {
+    background-color: #e65100;
+    color: white;
+  }
+
+  &.low {
+    background-color: #2e7d32;
+    color: white;
+  }
+}
+
+.no-vulnerabilities {
+  text-align: center;
+  padding: 3rem;
+
+  .success-icon {
+    font-size: 4rem;
+    color: #4caf50;
+    margin-bottom: 1rem;
+  }
+}
+
+// 響應式設計
+@media (max-width: 768px) {
+  .scan-container {
+    margin: 1rem;
+    padding: 0.5rem;
+  }
+
+  .summary-stats {
+    justify-content: center;
+    gap: 0.5rem;
+  }
+
+  .stat {
+    min-width: 60px;
+    padding: 0.75rem;
+  }
+
+  .progress-section {
+    padding: 1rem;
+  }
+
+  .no-vulnerabilities {
+    padding: 2rem 1rem;
+  }
+}

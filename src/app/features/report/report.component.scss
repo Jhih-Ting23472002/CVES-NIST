@@ -1,0 +1,374 @@
+.report-container {
+  max-width: 1200px;
+  margin: 2rem auto;
+  padding: 1rem;
+}
+
+.report-header-card {
+  margin-bottom: 2rem;
+}
+
+.report-metadata {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.scan-timestamp {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #666;
+  font-size: 0.9rem;
+
+  mat-icon {
+    font-size: 1rem;
+  }
+}
+
+.summary-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+.stat-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-radius: 12px;
+  transition: transform 0.3s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+  }
+
+  &.critical {
+    background: linear-gradient(135deg, #ffebee, #ffcdd2);
+    border-left: 4px solid #d32f2f;
+  }
+
+  &.high {
+    background: linear-gradient(135deg, #fff3e0, #ffcc02);
+    border-left: 4px solid #f57c00;
+  }
+
+  &.medium {
+    background: linear-gradient(135deg, #fff3e0, #ffcc80);
+    border-left: 4px solid #e65100;
+  }
+
+  &.low {
+    background: linear-gradient(135deg, #e8f5e8, #c8e6c9);
+    border-left: 4px solid #388e3c;
+  }
+
+  &.safe {
+    background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+    border-left: 4px solid #1976d2;
+  }
+}
+
+.stat-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.3);
+
+  mat-icon {
+    font-size: 24px;
+    width: 24px;
+    height: 24px;
+  }
+}
+
+.stat-content {
+  .stat-number {
+    font-size: 2rem;
+    font-weight: bold;
+    color: #333;
+  }
+
+  .stat-label {
+    font-size: 0.9rem;
+    color: #333;
+  }
+}
+
+.chart-section {
+  margin: 2rem 0;
+  text-align: center;
+
+  .chart-container {
+    max-width: 400px;
+    height: 300px;
+    margin: 0 auto;
+    position: relative;
+  }
+}
+
+.report-tabs {
+  margin: 2rem 0;
+}
+
+.tab-content {
+  padding: 2rem 1rem;
+}
+
+.package-card {
+  margin: 1rem 0;
+  transition: transform 0.3s ease;
+  border-left: 4px solid transparent;
+
+  &:hover {
+    transform: translateY(-2px);
+  }
+
+  // 根據風險等級添加左邊框顏色
+  &.risk-critical {
+    border-left-color: #d32f2f;
+    background: linear-gradient(135deg, #ffffff, #ffebee);
+  }
+
+  &.risk-high {
+    border-left-color: #f57c00;
+    background: linear-gradient(135deg, #ffffff, #fff3e0);
+  }
+
+  &.risk-medium {
+    border-left-color: #e65100;
+    background: linear-gradient(135deg, #ffffff, #fff3e0);
+  }
+
+  &.risk-low {
+    border-left-color: #388e3c;
+    background: linear-gradient(135deg, #ffffff, #e8f5e8);
+  }
+
+  &.risk-safe {
+    border-left-color: #1976d2;
+    background: linear-gradient(135deg, #ffffff, #e3f2fd);
+  }
+}
+
+.no-vulnerabilities {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem;
+  color: #4caf50;
+
+  .safe-icon {
+    margin-bottom: 1rem;
+  }
+}
+
+.vulnerabilities-list {
+  margin-top: 1rem;
+}
+
+.vulnerabilities-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.analysis-card {
+  margin: 1rem 0;
+}
+
+.analysis-section {
+  margin: 2rem 0;
+  padding: 1.5rem;
+  border-radius: 8px;
+
+  h4 {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+
+    mat-icon {
+      font-size: 1.2rem;
+      width: 1.2rem;
+      height: 1.2rem;
+    }
+  }
+
+  h5 {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 1.5rem 0 1rem 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+
+    mat-icon {
+      font-size: 1.1rem;
+      width: 1.1rem;
+      height: 1.1rem;
+    }
+  }
+
+  ul {
+    margin: 1rem 0;
+    padding-left: 1.5rem;
+
+    li {
+      margin-bottom: 0.5rem;
+      line-height: 1.6;
+    }
+  }
+}
+
+.critical-title {
+  color: #d32f2f;
+}
+
+.high-title {
+  color: #f57c00;
+}
+
+.medium-title {
+  color: #1976d2;
+}
+
+.official-recommendations {
+  background-color: #f8f9fa;
+  border-left: 4px solid #2196f3;
+  padding: 1rem;
+  margin: 1rem 0;
+  border-radius: 4px;
+
+  h5 {
+    color: #1976d2;
+    margin-top: 0;
+  }
+
+  ul li {
+    strong {
+      color: #1565c0;
+    }
+  }
+}
+
+.action-items {
+  background-color: #fff3e0;
+  border-left: 4px solid #ff9800;
+  padding: 1rem;
+  margin: 1rem 0;
+  border-radius: 4px;
+
+  h5 {
+    color: #f57c00;
+    margin-top: 0;
+  }
+}
+
+
+.recommendations {
+  background-color: #f8f9fa;
+  border-left: 4px solid #28a745;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  align-items: center;
+  margin: 2rem 0;
+  flex-wrap: wrap;
+}
+
+.export-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+// 風險等級樣式
+.count-chip-critical {
+  color: #c62828;
+  border: 1px solid #c62828;
+}
+
+.count-chip-high {
+  color: #ef6c00;
+  border: 1px solid #ef6c00;
+}
+
+.count-chip-medium {
+  color: #e65100;
+  border: 1px solid #e65100;
+}
+
+.count-chip-low {
+  background-color: #e8f5e8;
+  color: #2e7d32;
+  border: 1px solid #2e7d32;
+}
+
+.package-risk-critical {
+  background-color: #ffebee;
+  color: #c62828;
+}
+
+.package-risk-high {
+  background-color: #fff3e0;
+  color: #ef6c00;
+}
+
+.package-risk-medium {
+  background-color: #fff3e0;
+  color: #e65100;
+}
+
+.package-risk-low {
+  background-color: #e8f5e8;
+  color: #2e7d32;
+}
+
+.package-risk-safe {
+  color: #1565c0;
+}
+
+// 響應式設計
+@media (max-width: 768px) {
+  .report-container {
+    margin: 1rem;
+    padding: 0.5rem;
+  }
+
+  .summary-stats {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.5rem;
+  }
+
+  .stat-card {
+    flex-direction: column;
+    text-align: center;
+    padding: 1rem;
+    gap: 0.5rem;
+  }
+
+  .action-buttons {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .export-buttons {
+    justify-content: center;
+  }
+
+  .tab-content {
+    padding: 1rem 0.5rem;
+  }
+
+  .analysis-section {
+    padding: 1rem;
+  }
+}

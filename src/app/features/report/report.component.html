@@ -1,0 +1,299 @@
+<div class="report-container">
+  <mat-card class="report-header-card">
+    <mat-card-header>
+      <mat-card-title>
+        <mat-icon>assessment</mat-icon>
+        安全掃描報告
+      </mat-card-title>
+      <mat-card-subtitle>
+        <div class="report-metadata">
+          <div>掃描了 {{ packages.length }} 個套件，發現 {{ getTotalVulnerabilities() }} 個漏洞</div>
+          <div class="scan-timestamp">
+            <mat-icon>schedule</mat-icon>
+            掃描時間: {{ formatScanTimestamp() }}
+          </div>
+        </div>
+      </mat-card-subtitle>
+    </mat-card-header>
+    
+    <mat-card-content>
+      <!-- 總覽統計 -->
+      <div class="summary-stats">
+        <div class="stat-card critical" *ngIf="getSeverityCount('CRITICAL') > 0">
+          <div class="stat-icon">
+            <mat-icon>dangerous</mat-icon>
+          </div>
+          <div class="stat-content">
+            <div class="stat-number">{{ getSeverityCount('CRITICAL') }}</div>
+            <div class="stat-label">嚴重</div>
+          </div>
+        </div>
+        
+        <div class="stat-card high" *ngIf="getSeverityCount('HIGH') > 0">
+          <div class="stat-icon">
+            <mat-icon>warning</mat-icon>
+          </div>
+          <div class="stat-content">
+            <div class="stat-number">{{ getSeverityCount('HIGH') }}</div>
+            <div class="stat-label">高風險</div>
+          </div>
+        </div>
+        
+        <div class="stat-card medium" *ngIf="getSeverityCount('MEDIUM') > 0">
+          <div class="stat-icon">
+            <mat-icon>error_outline</mat-icon>
+          </div>
+          <div class="stat-content">
+            <div class="stat-number">{{ getSeverityCount('MEDIUM') }}</div>
+            <div class="stat-label">中風險</div>
+          </div>
+        </div>
+        
+        <div class="stat-card low" *ngIf="getSeverityCount('LOW') > 0">
+          <div class="stat-icon">
+            <mat-icon>info</mat-icon>
+          </div>
+          <div class="stat-content">
+            <div class="stat-number">{{ getSeverityCount('LOW') }}</div>
+            <div class="stat-label">低風險</div>
+          </div>
+        </div>
+        
+        <div class="stat-card safe">
+          <div class="stat-icon">
+            <mat-icon>verified</mat-icon>
+          </div>
+          <div class="stat-content">
+            <div class="stat-number">{{ getSafePackagesCount() }}</div>
+            <div class="stat-label">安全</div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 圖表 -->
+      <div class="chart-section" *ngIf="getTotalVulnerabilities() > 0">
+        <h3>風險分佈圖</h3>
+        <div class="chart-container">
+          <canvas baseChart
+                  [data]="doughnutChartData"
+                  type="doughnut"
+                  [options]="doughnutChartOptions"
+                  width="400"
+                  height="300">
+          </canvas>
+        </div>
+      </div>
+    </mat-card-content>
+  </mat-card>
+
+  <!-- 分頁內容 -->
+  <mat-tab-group class="report-tabs">
+    <!-- 套件列表分頁 -->
+    <mat-tab label="套件列表">
+      <div class="tab-content">
+        <mat-card *ngFor="let result of scanResults" 
+                  class="package-card"
+                  [class]="'risk-' + getPackageRiskLevel(result.vulnerabilities)">
+          <mat-card-header>
+            <mat-card-title>{{ result.packageName }}</mat-card-title>
+            <mat-card-subtitle>
+              <mat-chip-set>
+                <mat-chip 
+                  [class]="getPackageRiskClass(result.vulnerabilities)"
+                  [highlighted]="true">
+                  {{ getPackageRiskLabel(result.vulnerabilities) }}
+                </mat-chip>
+                <mat-chip 
+                  [class]="getVulnerabilityCountChipClass(result.vulnerabilities)" 
+                  *ngIf="result.vulnerabilities.length > 0">
+                  {{ result.vulnerabilities.length }} 個漏洞
+                </mat-chip>
+              </mat-chip-set>
+            </mat-card-subtitle>
+          </mat-card-header>
+          
+          <mat-card-content *ngIf="result.vulnerabilities.length === 0">
+            <div class="no-vulnerabilities">
+              <mat-icon class="safe-icon">verified</mat-icon>
+              <p>此套件沒有發現已知漏洞</p>
+            </div>
+          </mat-card-content>
+          
+          <mat-card-content *ngIf="result.vulnerabilities.length > 0">
+            <mat-expansion-panel>
+              <mat-expansion-panel-header>
+                <mat-panel-title>
+                  檢視 {{ result.vulnerabilities.length }} 個漏洞詳情
+                </mat-panel-title>
+              </mat-expansion-panel-header>
+              
+              <div class="vulnerabilities-list">
+                <app-vulnerability-detail 
+                  *ngFor="let vulnerability of result.vulnerabilities"
+                  [vulnerability]="vulnerability">
+                </app-vulnerability-detail>
+              </div>
+            </mat-expansion-panel>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </mat-tab>
+
+    <!-- 風險分析分頁 -->
+    <mat-tab label="風險分析" *ngIf="getTotalVulnerabilities() > 0">
+      <div class="tab-content">
+        <mat-card class="analysis-card">
+          <mat-card-header>
+            <mat-card-title>
+              <mat-icon>analytics</mat-icon>
+              風險評估分析
+            </mat-card-title>
+          </mat-card-header>
+          
+          <mat-card-content>
+            <div class="risk-analysis">
+              <div class="analysis-section" *ngIf="getSeverityCount('CRITICAL') > 0">
+                <h4 class="critical-title">
+                  <mat-icon>dangerous</mat-icon>
+                  嚴重風險警告
+                </h4>
+                <p>發現 <strong>{{ getSeverityCount('CRITICAL') }}</strong> 個嚴重等級漏洞，建議立即處理。</p>
+                
+                <!-- NIST 官方建議 -->
+                <div class="official-recommendations">
+                  <h5><mat-icon>shield</mat-icon>NIST 官方建議</h5>
+                  <ul>
+                    <li><strong>立即行動 (Immediate Action)</strong>：根據 NIST SP 800-40 指引，嚴重漏洞應在發現後 72 小時內修復</li>
+                    <li><strong>風險評估</strong>：依據 NIST RMF (Risk Management Framework)，評估對機密性、完整性、可用性的影響</li>
+                    <li><strong>應急回應</strong>：參考 NIST SP 800-61 資安事件處理指南，啟動應急回應程序</li>
+                    <li><strong>持續監控</strong>：實施 NIST SP 800-137 持續監控策略，密切追蹤修復狀況</li>
+                  </ul>
+                </div>
+                
+                <div class="action-items">
+                  <h5><mat-icon>task_alt</mat-icon>建議行動</h5>
+                  <ul>
+                    <li>立即更新相關套件至安全版本</li>
+                    <li>評估是否需要暫時停用相關功能</li>
+                    <li>監控系統日誌以檢測可能的攻擊嘗試</li>
+                    <li>通知相關利害關係人和管理層</li>
+                  </ul>
+                </div>
+              </div>
+              
+              <div class="analysis-section" *ngIf="getSeverityCount('HIGH') > 0">
+                <h4 class="high-title">
+                  <mat-icon>warning</mat-icon>
+                  高風險項目
+                </h4>
+                <p>發現 <strong>{{ getSeverityCount('HIGH') }}</strong> 個高風險漏洞，建議優先處理。</p>
+                
+                <div class="official-recommendations">
+                  <h5><mat-icon>security</mat-icon>最佳實務</h5>
+                  <ul>
+                    <li><strong>修復時程</strong>：依據 CISA 指引，高風險漏洞應在 15 天內修復</li>
+                    <li><strong>優先排序</strong>：使用 CVSS 評分系統和 EPSS (Exploit Prediction Scoring System) 評估修復優先順序</li>
+                    <li><strong>暫時緩解</strong>：實施網路分段、存取控制等暫時性防護措施</li>
+                  </ul>
+                </div>
+                
+                <div class="action-items">
+                  <h5><mat-icon>schedule</mat-icon>行動計畫</h5>
+                  <ul>
+                    <li>規劃套件更新時程</li>
+                    <li>評估業務影響和修復成本</li>
+                    <li>加強相關模組的監控</li>
+                    <li>建立回退計畫和測試程序</li>
+                  </ul>
+                </div>
+              </div>
+              
+              <div class="analysis-section" *ngIf="getSeverityCount('MEDIUM') > 0 || getSeverityCount('LOW') > 0">
+                <h4 class="medium-title">
+                  <mat-icon>info</mat-icon>
+                  一般風險項目
+                </h4>
+                <p>發現 <strong>{{ getSeverityCount('MEDIUM') + getSeverityCount('LOW') }}</strong> 個中低風險漏洞。</p>
+                
+                <div class="official-recommendations">
+                  <h5><mat-icon>update</mat-icon>維護建議</h5>
+                  <ul>
+                    <li><strong>定期更新</strong>：建立定期更新週期，中風險漏洞 30 天內、低風險漏洞 90 天內修復</li>
+                    <li><strong>自動化管理</strong>：使用 Dependabot、Renovate 等工具自動化依賴套件管理</li>
+                    <li><strong>測試驗證</strong>：建立完整的測試流程確保更新不影響功能</li>
+                  </ul>
+                </div>
+                
+                <div class="action-items">
+                  <h5><mat-icon>assignment</mat-icon>維護計畫</h5>
+                  <ul>
+                    <li>納入定期維護計畫</li>
+                    <li>持續關注安全更新</li>
+                    <li>考慮在下次大版本更新時一併處理</li>
+                    <li>建立漏洞追蹤和管理流程</li>
+                  </ul>
+                </div>
+              </div>
+              
+              <div class="analysis-section recommendations">
+                <h4>
+                  <mat-icon>lightbulb</mat-icon>
+                  安全建議
+                </h4>
+                <ul>
+                  <li>定期執行安全掃描（建議每週一次）</li>
+                  <li>建立自動化安全更新流程</li>
+                  <li>訂閱相關套件的安全通知</li>
+                  <li>建立漏洞應變處理流程</li>
+                  <li>考慮引入 Dependabot 等工具自動化管理</li>
+                </ul>
+              </div>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </mat-tab>
+
+    <!-- 所有漏洞分頁 -->
+    <mat-tab label="所有漏洞" *ngIf="getTotalVulnerabilities() > 0">
+      <div class="tab-content">
+        <div class="vulnerabilities-grid">
+          <ng-container *ngFor="let result of scanResults">
+            <app-vulnerability-detail 
+              *ngFor="let vulnerability of result.vulnerabilities"
+              [vulnerability]="vulnerability">
+            </app-vulnerability-detail>
+          </ng-container>
+        </div>
+      </div>
+    </mat-tab>
+  </mat-tab-group>
+
+  <!-- 動作按鈕 -->
+  <div class="action-buttons">
+    <button mat-button (click)="goBack()">
+      <mat-icon>arrow_back</mat-icon>
+      返回掃描
+    </button>
+    
+    <div class="export-buttons">
+      <button mat-raised-button color="primary" (click)="exportAsJson()">
+        <mat-icon>download</mat-icon>
+        匯出 JSON
+      </button>
+      <button mat-raised-button color="primary" (click)="exportAsCsv()">
+        <mat-icon>table_chart</mat-icon>
+        匯出 CSV
+      </button>
+      <button mat-raised-button color="primary" (click)="exportAsHtml()">
+        <mat-icon>description</mat-icon>
+        匯出 HTML
+      </button>
+    </div>
+    
+    <button mat-raised-button color="accent" (click)="startNewScan()">
+      <mat-icon>refresh</mat-icon>
+      新的掃描
+    </button>
+  </div>
+</div>
