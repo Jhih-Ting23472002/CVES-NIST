@@ -133,6 +133,138 @@ mat-progress-bar {
   }
 }
 
+// 背景掃描相關樣式
+.scan-options {
+  background-color: #f5f5f5;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+
+  h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    color: #333;
+  }
+
+  .background-scan-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+
+    .info-icon {
+      font-size: 1.2rem;
+      color: #666;
+      cursor: help;
+    }
+  }
+
+  .scan-config {
+    margin-top: 1rem;
+    padding: 1rem;
+    background-color: #e3f2fd;
+    border-radius: 4px;
+    border-left: 4px solid #1976d2;
+
+    .config-description {
+      margin: 0 0 0.5rem 0;
+      font-weight: 500;
+      color: #333;
+    }
+
+    .time-estimate {
+      margin: 0;
+      color: #666;
+      font-size: 0.9rem;
+    }
+  }
+}
+
+.background-task-controls {
+  background-color: #f3e5f5;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  border-left: 4px solid #9c27b0;
+
+  .task-info {
+    margin-bottom: 1rem;
+
+    h4 {
+      margin: 0 0 0.5rem 0;
+      color: #333;
+    }
+
+    .task-description {
+      margin: 0.25rem 0;
+      color: #666;
+      font-size: 0.9rem;
+    }
+
+    .task-status {
+      margin: 0.5rem 0 0 0;
+      font-weight: 500;
+
+      &.status-running {
+        color: #1976d2;
+      }
+
+      &.status-paused {
+        color: #ff9800;
+      }
+
+      &.status-completed {
+        color: #4caf50;
+      }
+
+      &.status-failed {
+        color: #f44336;
+      }
+
+      &.status-cancelled {
+        color: #757575;
+      }
+    }
+  }
+
+  .task-controls {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+}
+
+.progress-mode {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  color: #1976d2;
+  font-weight: 500;
+
+  .background-icon {
+    font-size: 1.2rem;
+    color: #1976d2;
+  }
+}
+
+// 通知相關樣式
+.info-snackbar {
+  background-color: #2196f3 !important;
+  color: white !important;
+}
+
+// 按鈕增強樣式
+mat-card-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: center;
+  padding: 1rem 1.5rem;
+}
+
 // 響應式設計
 @media (max-width: 768px) {
   .scan-container {
@@ -156,5 +288,25 @@ mat-progress-bar {
 
   .no-vulnerabilities {
     padding: 2rem 1rem;
+  }
+
+  .scan-options,
+  .background-task-controls {
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .task-controls {
+    justify-content: center;
+  }
+
+  mat-card-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+
+    button {
+      width: 100%;
+    }
   }
 }
