@@ -1,11 +1,28 @@
 <div class="upload-container">
   <mat-card class="upload-card">
     <mat-card-header>
-      <mat-card-title>
-        <mat-icon>security</mat-icon>
-        CVE 安全掃描工具
-      </mat-card-title>
-      <mat-card-subtitle>上傳您的 package.json 或 package-lock.json 檔案進行安全漏洞掃描</mat-card-subtitle>
+      <div class="header-content">
+        <div class="title-section">
+          <mat-card-title>
+            <mat-icon>security</mat-icon>
+            CVE 安全掃描工具
+          </mat-card-title>
+          <mat-card-subtitle>上傳您的 package.json 或 package-lock.json 檔案進行安全漏洞掃描</mat-card-subtitle>
+        </div>
+        <div class="header-actions">
+          <button mat-icon-button 
+                  color="primary"
+                  routerLink="/background-tasks"
+                  matTooltip="查看背景任務"
+                  *ngIf="backgroundScanService.getTaskStats().active > 0 || backgroundScanService.getTaskStats().completed > 0">
+            <mat-icon matBadge="{{ backgroundScanService.getTaskStats().active }}" 
+                      [matBadgeHidden]="backgroundScanService.getTaskStats().active === 0"
+                      matBadgeColor="accent">
+              cloud_queue
+            </mat-icon>
+          </button>
+        </div>
+      </div>
     </mat-card-header>
 
     <mat-card-content>

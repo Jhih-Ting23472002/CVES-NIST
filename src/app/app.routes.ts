@@ -14,5 +14,9 @@ export const routes: Routes = [
     path: 'report', 
     loadComponent: () => import('./features/report/report.component').then(m => m.ReportComponent)
   },
+  { 
+    path: 'background-tasks', 
+    loadComponent: () => import('./features/background-tasks/background-tasks.component').then(m => m.BackgroundTasksComponent)
+  },
   { path: '**', redirectTo: '/upload' }
 ];

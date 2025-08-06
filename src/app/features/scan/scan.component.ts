@@ -76,10 +76,25 @@ export class ScanComponent implements OnInit, OnDestroy {
     private snackBar: MatSnackBar,
     private dialog: MatDialog
   ) {
-    // 從路由狀態取得套件清單
+    // 從路由狀態取得套件清單和背景任務資訊
     const navigation = this.router.getCurrentNavigation();
     if (navigation?.extras?.state?.['packages']) {
       this.packages = navigation.extras.state['packages'];
+    }
+    
+    // 檢查是否來自背景任務頁面的前景顯示請求
+    if (navigation?.extras?.state?.['backgroundTaskId']) {
+      const taskId = navigation.extras.state['backgroundTaskId'];
+      const showInForeground = navigation.extras.state['showInForeground'];
+      
+      if (showInForeground) {
+        // 將背景任務切換為前景顯示
+        const task = this.backgroundScanService.getTask(taskId);
+        if (task) {
+          this.currentTask = task;
+          this.syncWithBackgroundTask(task);
+        }
+      }
     }
   }
   

@@ -16,6 +16,34 @@
   height: fit-content;
 }
 
+// Header 樣式
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  width: 100%;
+
+  .title-section {
+    flex: 1;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: 1rem;
+
+    .mat-mdc-icon-button {
+      position: relative;
+      
+      .mat-badge {
+        font-size: 0.7rem;
+        font-weight: bold;
+      }
+    }
+  }
+}
+
 // 上傳區域樣式
 .upload-zone {
   border: 2px dashed #ccc;

@@ -1,0 +1,269 @@
+<div class="background-tasks-container">
+  <!-- 頁面標題 -->
+  <div class="page-header">
+    <h1>
+      <mat-icon>cloud_queue</mat-icon>
+      背景任務管理
+    </h1>
+    <p class="subtitle">管理您的掃描任務，查看執行進度和結果</p>
+  </div>
+
+  <!-- 任務統計 -->
+  <div class="task-stats" *ngIf="getTaskStats() as stats">
+    <div class="stat-card">
+      <div class="stat-number">{{ stats.active }}</div>
+      <div class="stat-label">活動任務</div>
+    </div>
+    <div class="stat-card running" *ngIf="stats.running > 0">
+      <div class="stat-number">{{ stats.running }}</div>
+      <div class="stat-label">執行中</div>
+    </div>
+    <div class="stat-card paused" *ngIf="stats.paused > 0">
+      <div class="stat-number">{{ stats.paused }}</div>
+      <div class="stat-label">已暫停</div>
+    </div>
+    <div class="stat-card completed" *ngIf="stats.completed > 0">
+      <div class="stat-number">{{ stats.completed }}</div>
+      <div class="stat-label">已完成</div>
+    </div>
+  </div>
+
+  <!-- 活動任務 -->
+  <mat-card *ngIf="state.activeTasks.length > 0" class="tasks-card">
+    <mat-card-header>
+      <mat-card-title>
+        <mat-icon>play_circle</mat-icon>
+        活動任務 ({{ state.activeTasks.length }})
+      </mat-card-title>
+      <mat-card-subtitle>正在執行或等待執行的掃描任務</mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content>
+      <table mat-table [dataSource]="state.activeTasks" class="tasks-table">
+        <!-- 任務名稱 -->
+        <ng-container matColumnDef="name">
+          <th mat-header-cell *matHeaderCellDef>任務名稱</th>
+          <td mat-cell *matCellDef="let task">
+            <div class="task-name">
+              <strong>{{ task.name }}</strong>
+              <small>{{ task.packages.length }} 個套件</small>
+            </div>
+          </td>
+        </ng-container>
+
+        <!-- 進度 -->
+        <ng-container matColumnDef="progress">
+          <th mat-header-cell *matHeaderCellDef>進度</th>
+          <td mat-cell *matCellDef="let task">
+            <div class="progress-info">
+              <mat-progress-bar 
+                mode="determinate" 
+                [value]="task.progress.percentage">
+              </mat-progress-bar>
+              <small>{{ task.progress.current }} / {{ task.progress.total }} ({{ task.progress.percentage.toFixed(1) }}%)</small>
+              <div class="current-package" *ngIf="task.status === 'running'">
+                {{ task.progress.currentPackage }}
+              </div>
+            </div>
+          </td>
+        </ng-container>
+
+        <!-- 狀態 -->
+        <ng-container matColumnDef="status">
+          <th mat-header-cell *matHeaderCellDef>狀態</th>
+          <td mat-cell *matCellDef="let task">
+            <mat-chip [color]="getTaskStatusColor(task.status)" selected>
+              <mat-icon>{{ getTaskStatusIcon(task.status) }}</mat-icon>
+              {{ getTaskStatusText(task.status) }}
+            </mat-chip>
+          </td>
+        </ng-container>
+
+        <!-- 操作 -->
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef>操作</th>
+          <td mat-cell *matCellDef="let task">
+            <div class="action-buttons">
+              <!-- 開始/繼續 -->
+              <button mat-icon-button 
+                      color="primary"
+                      *ngIf="canStartTask(task)"
+                      (click)="startTask(task.id)"
+                      matTooltip="開始/繼續任務">
+                <mat-icon>play_arrow</mat-icon>
+              </button>
+
+              <!-- 暫停 -->
+              <button mat-icon-button 
+                      color="warn"
+                      *ngIf="canPauseTask(task)"
+                      (click)="pauseTask(task.id)"
+                      matTooltip="暫停任務">
+                <mat-icon>pause</mat-icon>
+              </button>
+
+              <!-- 取消 -->
+              <button mat-icon-button 
+                      color="warn"
+                      *ngIf="canCancelTask(task)"
+                      (click)="cancelTask(task.id)"
+                      matTooltip="取消任務">
+                <mat-icon>stop</mat-icon>
+              </button>
+
+              <!-- 前景顯示 -->
+              <button mat-icon-button 
+                      color="accent"
+                      *ngIf="canViewTask(task)"
+                      (click)="viewTaskInForeground(task)"
+                      matTooltip="切換到前景顯示">
+                <mat-icon>open_in_full</mat-icon>
+              </button>
+
+              <!-- 更多選項 -->
+              <button mat-icon-button [matMenuTriggerFor]="taskMenu">
+                <mat-icon>more_vert</mat-icon>
+              </button>
+              <mat-menu #taskMenu="matMenu">
+                <button mat-menu-item (click)="viewTaskInForeground(task)">
+                  <mat-icon>visibility</mat-icon>
+                  <span>查看詳情</span>
+                </button>
+                <button mat-menu-item (click)="cancelTask(task.id)" *ngIf="canCancelTask(task)">
+                  <mat-icon>cancel</mat-icon>
+                  <span>取消任務</span>
+                </button>
+              </mat-menu>
+            </div>
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="displayedActiveColumns"></tr>
+        <tr mat-row *matRowDef="let row; columns: displayedActiveColumns;"></tr>
+      </table>
+    </mat-card-content>
+  </mat-card>
+
+  <!-- 已完成任務 -->
+  <mat-card *ngIf="state.completedTasks.length > 0" class="tasks-card">
+    <mat-card-header>
+      <mat-card-title>
+        <mat-icon>history</mat-icon>
+        已完成任務 ({{ state.completedTasks.length }})
+      </mat-card-title>
+      <mat-card-subtitle>
+        最近完成的掃描任務記錄
+        <button mat-button 
+                color="warn" 
+                (click)="clearCompletedTasks()"
+                class="clear-button">
+          <mat-icon>clear_all</mat-icon>
+          清除全部
+        </button>
+      </mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content>
+      <table mat-table [dataSource]="state.completedTasks" class="tasks-table">
+        <!-- 任務名稱 -->
+        <ng-container matColumnDef="name">
+          <th mat-header-cell *matHeaderCellDef>任務名稱</th>
+          <td mat-cell *matCellDef="let task">
+            <div class="task-name">
+              <strong>{{ task.name }}</strong>
+              <small>{{ task.packages.length }} 個套件 | 完成於 {{ task.completedAt | date:'short' }}</small>
+            </div>
+          </td>
+        </ng-container>
+
+        <!-- 耗時 -->
+        <ng-container matColumnDef="duration">
+          <th mat-header-cell *matHeaderCellDef>耗時</th>
+          <td mat-cell *matCellDef="let task">
+            <div class="duration-info">
+              <strong>{{ formatDuration(task.actualDuration) }}</strong>
+              <small *ngIf="task.estimatedDuration">
+                (預估 {{ formatDuration(task.estimatedDuration) }})
+              </small>
+            </div>
+          </td>
+        </ng-container>
+
+        <!-- 狀態 -->
+        <ng-container matColumnDef="status">
+          <th mat-header-cell *matHeaderCellDef>狀態</th>
+          <td mat-cell *matCellDef="let task">
+            <mat-chip [color]="getTaskStatusColor(task.status)" selected>
+              <mat-icon>{{ getTaskStatusIcon(task.status) }}</mat-icon>
+              {{ getTaskStatusText(task.status) }}
+            </mat-chip>
+          </td>
+        </ng-container>
+
+        <!-- 結果 -->
+        <ng-container matColumnDef="results">
+          <th mat-header-cell *matHeaderCellDef>掃描結果</th>
+          <td mat-cell *matCellDef="let task">
+            <div class="result-summary">
+              {{ getResultSummary(task) }}
+            </div>
+          </td>
+        </ng-container>
+
+        <!-- 操作 -->
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef>操作</th>
+          <td mat-cell *matCellDef="let task">
+            <div class="action-buttons">
+              <!-- 查看報告 -->
+              <button mat-icon-button 
+                      color="primary"
+                      *ngIf="task.status === 'completed' && task.results"
+                      (click)="viewTaskInForeground(task)"
+                      matTooltip="查看詳細報告">
+                <mat-icon>assessment</mat-icon>
+              </button>
+
+              <!-- 刪除 -->
+              <button mat-icon-button 
+                      color="warn"
+                      (click)="deleteTask(task.id)"
+                      matTooltip="刪除任務">
+                <mat-icon>delete</mat-icon>
+              </button>
+
+              <!-- 錯誤詳情 -->
+              <button mat-icon-button 
+                      color="warn"
+                      *ngIf="task.status === 'failed'"
+                      matTooltip="{{ task.error || '未知錯誤' }}">
+                <mat-icon>error</mat-icon>
+              </button>
+            </div>
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="displayedCompletedColumns"></tr>
+        <tr mat-row *matRowDef="let row; columns: displayedCompletedColumns;"></tr>
+      </table>
+    </mat-card-content>
+  </mat-card>
+
+  <!-- 空狀態 -->
+  <div class="empty-state" *ngIf="state.activeTasks.length === 0 && state.completedTasks.length === 0">
+    <mat-icon class="empty-icon">cloud_off</mat-icon>
+    <h3>尚無背景任務</h3>
+    <p>當您選擇背景掃描模式時，任務會在這裡顯示</p>
+    <button mat-raised-button color="primary" (click)="goHome()">
+      <mat-icon>upload</mat-icon>
+      開始新掃描
+    </button>
+  </div>
+
+  <!-- 浮動操作按鈕 -->
+  <div class="fab-container">
+    <button mat-fab color="primary" (click)="goHome()" matTooltip="開始新掃描">
+      <mat-icon>add</mat-icon>
+    </button>
+  </div>
+</div>

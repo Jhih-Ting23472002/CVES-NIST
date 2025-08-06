@@ -1,7 +1,7 @@
 import { Component, OnInit, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterModule } from '@angular/router';
 import { MatStepperModule } from '@angular/material/stepper';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -13,9 +13,11 @@ import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatRadioModule } from '@angular/material/radio';
 import { MatExpansionModule } from '@angular/material/expansion';
+import { MatBadgeModule } from '@angular/material/badge';
 import { FormsModule } from '@angular/forms';
 
 import { FileParserService } from '../../core/services/file-parser.service';
+import { BackgroundScanService } from '../../core/services/background-scan.service';
 import { PackageInfo, ValidationResult, ScanConfig, DEFAULT_SCAN_CONFIGS } from '../../core/models/vulnerability.model';
 
 @Component({
@@ -25,6 +27,7 @@ import { PackageInfo, ValidationResult, ScanConfig, DEFAULT_SCAN_CONFIGS } from 
     CommonModule,
     ReactiveFormsModule,
     FormsModule,
+    RouterModule,
     MatStepperModule,
     MatButtonModule,
     MatCardModule,
@@ -35,7 +38,8 @@ import { PackageInfo, ValidationResult, ScanConfig, DEFAULT_SCAN_CONFIGS } from 
     MatTableModule,
     MatTooltipModule,
     MatRadioModule,
-    MatExpansionModule
+    MatExpansionModule,
+    MatBadgeModule
   ],
   templateUrl: './upload.component.html',
   styleUrls: ['./upload.component.scss']
@@ -88,7 +92,8 @@ export class UploadComponent implements OnInit {
     private fb: FormBuilder,
     private router: Router,
     private snackBar: MatSnackBar,
-    private fileParserService: FileParserService
+    private fileParserService: FileParserService,
+    public backgroundScanService: BackgroundScanService
   ) {
     this.fileSelectionForm = this.fb.group({
       file: ['', Validators.required]
