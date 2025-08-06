@@ -5,7 +5,7 @@
         <mat-icon>security</mat-icon>
         CVE 安全掃描工具
       </mat-card-title>
-      <mat-card-subtitle>上傳您的 package.json 檔案進行安全漏洞掃描</mat-card-subtitle>
+      <mat-card-subtitle>上傳您的 package.json 或 package-lock.json 檔案進行安全漏洞掃描</mat-card-subtitle>
     </mat-card-header>
 
     <mat-card-content>
@@ -29,7 +29,7 @@
               <div class="upload-content">
                 <mat-icon class="upload-icon">upload</mat-icon>
                 <h3>拖拽檔案至此或點擊選擇</h3>
-                <p>僅支援 package.json 檔案</p>
+                <p>支援 package.json 或 package-lock.json 檔案</p>
                 <p class="file-size-hint">最大檔案大小: 10MB</p>
               </div>
             </div>
@@ -42,6 +42,7 @@
                 <mat-icon>close</mat-icon>
               </button>
             </div>
+
 
             <div class="step-actions">
               <button mat-raised-button 
@@ -116,8 +117,60 @@
                     <mat-icon>build</mat-icon>
                     開發相依 {{ getDependencyCount('devDependency') }}
                   </mat-chip>
+                  <mat-chip class="transitive-chip" *ngIf="isPackageLockFile()">
+                    <mat-icon>account_tree</mat-icon>
+                    間接相依 {{ getDependencyCount('transitive') }}
+                  </mat-chip>
                 </mat-chip-set>
               </div>
+
+              <!-- 掃描模式選擇 -->
+              <div class="scan-mode-section" *ngIf="packages.length > 0">
+                <mat-expansion-panel>
+                  <mat-expansion-panel-header>
+                    <mat-panel-title>
+                      <mat-icon>settings</mat-icon>
+                      掃描設定
+                    </mat-panel-title>
+                    <mat-panel-description>
+                      {{ getCurrentModeDescription() }}
+                    </mat-panel-description>
+                  </mat-expansion-panel-header>
+                  
+                  <div class="scan-mode-content">
+                    <h4>選擇掃描模式：</h4>
+                    <mat-radio-group 
+                      [value]="currentScanConfig.mode" 
+                      (change)="onScanModeChange($event.value)">
+                      
+                      <div class="scan-mode-options">
+                        <mat-radio-button 
+                          *ngFor="let mode of scanModes" 
+                          [value]="mode.value"
+                          class="scan-mode-option">
+                          
+                          <div class="mode-content">
+                            <div class="mode-header">
+                              <mat-icon [class]="'mode-icon-' + mode.value">{{ mode.icon }}</mat-icon>
+                              <span class="mode-label">{{ mode.label }}</span>
+                            </div>
+                            <p class="mode-description">{{ mode.description }}</p>
+                          </div>
+                        </mat-radio-button>
+                      </div>
+                    </mat-radio-group>
+
+                    <div class="scan-stats" *ngIf="allPackages.length > 0">
+                      <mat-icon>info</mat-icon>
+                      <span>{{ getScanStats() }}</span>
+                      <span *ngIf="estimatedScanTime" class="time-estimate">
+                        (預估時間: {{ estimatedScanTime.estimatedMinutes }} 分鐘)
+                      </span>
+                    </div>
+                  </div>
+                </mat-expansion-panel>
+              </div>
+
             </div>
 
             <div class="packages-table">
@@ -135,11 +188,13 @@
                 <ng-container matColumnDef="type">
                   <th mat-header-cell *matHeaderCellDef>類型</th>
                   <td mat-cell *matCellDef="let package">
-                    <mat-chip [class]="package.type === 'dependency' ? 'type-prod' : 'type-dev'">
-                      {{ package.type === 'dependency' ? '正式' : '開發' }}
+                    <mat-chip [class]="'type-' + package.type">
+                      {{ package.type === 'dependency' ? '正式' : 
+                         package.type === 'devDependency' ? '開發' : '間接' }}
                     </mat-chip>
                   </td>
                 </ng-container>
+
 
                 <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
                 <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
@@ -179,7 +234,7 @@
           <mat-icon>upload_file</mat-icon>
           <div>
             <h4>1. 上傳檔案</h4>
-            <p>選擇您專案根目錄的 package.json 檔案</p>
+            <p>選擇您專案根目錄的 package.json 或 package-lock.json 檔案</p>
           </div>
         </div>
         <div class="help-step">

@@ -11,9 +11,12 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatSnackBarModule, MatSnackBar } from '@angular/material/snack-bar';
 import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatRadioModule } from '@angular/material/radio';
+import { MatExpansionModule } from '@angular/material/expansion';
+import { FormsModule } from '@angular/forms';
 
 import { FileParserService } from '../../core/services/file-parser.service';
-import { PackageInfo, ValidationResult } from '../../core/models/vulnerability.model';
+import { PackageInfo, ValidationResult, ScanConfig, DEFAULT_SCAN_CONFIGS } from '../../core/models/vulnerability.model';
 
 @Component({
   selector: 'app-upload',
@@ -21,6 +24,7 @@ import { PackageInfo, ValidationResult } from '../../core/models/vulnerability.m
   imports: [
     CommonModule,
     ReactiveFormsModule,
+    FormsModule,
     MatStepperModule,
     MatButtonModule,
     MatCardModule,
@@ -29,7 +33,9 @@ import { PackageInfo, ValidationResult } from '../../core/models/vulnerability.m
     MatChipsModule,
     MatSnackBarModule,
     MatTableModule,
-    MatTooltipModule
+    MatTooltipModule,
+    MatRadioModule,
+    MatExpansionModule
   ],
   templateUrl: './upload.component.html',
   styleUrls: ['./upload.component.scss']
@@ -47,8 +53,36 @@ export class UploadComponent implements OnInit {
   isParsing = false;
   validationResult: ValidationResult | null = null;
   packages: PackageInfo[] = [];
+  allPackages: PackageInfo[] = [];
+  currentScanConfig: ScanConfig = DEFAULT_SCAN_CONFIGS['balanced'];
+  estimatedScanTime: { estimatedMinutes: number; description: string } | null = null;
   
   displayedColumns = ['name', 'version', 'type'];
+
+  // 掃描模式選項
+  scanModes = [
+    { 
+      value: 'fast', 
+      label: '快速掃描', 
+      description: '僅掃描直接相依性，跳過開發工具',
+      icon: 'flash_on',
+      config: DEFAULT_SCAN_CONFIGS['fast']
+    },
+    { 
+      value: 'balanced', 
+      label: '平衡掃描', 
+      description: '掃描直接和開發相依性，限制間接相依深度',
+      icon: 'balance',
+      config: DEFAULT_SCAN_CONFIGS['balanced']
+    },
+    { 
+      value: 'comprehensive', 
+      label: '完整掃描', 
+      description: '掃描所有相依性，包含深層間接相依',
+      icon: 'search',
+      config: DEFAULT_SCAN_CONFIGS['comprehensive']
+    }
+  ];
 
   constructor(
     private fb: FormBuilder,
@@ -112,8 +146,9 @@ export class UploadComponent implements OnInit {
     }
 
     // 檔案類型檢查
-    if (!file.name.endsWith('.json')) {
-      this.snackBar.open('請選擇 JSON 格式的檔案', '確定', {
+    const isValidFile = file.name === 'package.json' || file.name === 'package-lock.json';
+    if (!isValidFile) {
+      this.snackBar.open('請選擇 package.json 或 package-lock.json 檔案', '確定', {
         duration: 5000,
         panelClass: ['error-snackbar']
       });
@@ -135,6 +170,7 @@ export class UploadComponent implements OnInit {
       this.fileInput.nativeElement.value = '';
     }
   }
+
 
   // 檔案驗證
   validateFile(): void {
@@ -180,15 +216,45 @@ export class UploadComponent implements OnInit {
     if (!this.selectedFile) return;
     
     this.isParsing = true;
-    this.fileParserService.parsePackageJson(this.selectedFile).subscribe({
-      next: (packages) => {
-        this.packages = packages;
-        this.isParsing = false;
+    
+    // 先取得所有套件以便統計和建議
+    this.fileParserService.parsePackageFile(this.selectedFile, DEFAULT_SCAN_CONFIGS['comprehensive']).subscribe({
+      next: (allPackages) => {
+        this.allPackages = allPackages;
         
-        this.snackBar.open(`成功解析 ${packages.length} 個套件`, '確定', {
-          duration: 3000,
-          panelClass: ['success-snackbar']
-        });
+        // 根據套件數量建議掃描配置
+        const recommendedConfig = this.fileParserService.getScanConfigRecommendation(allPackages.length);
+        const recommendedMode = this.scanModes.find(mode => mode.config.mode === recommendedConfig.mode);
+        
+        // 使用當前選擇的配置過濾套件
+        if (this.selectedFile) {
+          this.fileParserService.parsePackageFile(this.selectedFile, this.currentScanConfig).subscribe({
+            next: (filteredPackages) => {
+              this.packages = filteredPackages;
+              this.estimatedScanTime = this.fileParserService.estimateScanTime(filteredPackages);
+              this.isParsing = false;
+              
+              const filterInfo = allPackages.length !== filteredPackages.length ? 
+                `，已過濾至 ${filteredPackages.length} 個套件` : '';
+              
+              this.snackBar.open(
+                `成功解析 ${filteredPackages.length} 個套件${filterInfo}${recommendedMode ? `，建議使用「${recommendedMode.label}」模式` : ''}`, 
+                '確定', 
+                {
+                  duration: 4000,
+                  panelClass: ['success-snackbar']
+                }
+              );
+            },
+            error: (error) => {
+              this.isParsing = false;
+              this.snackBar.open(`解析失敗: ${error.message}`, '確定', {
+                duration: 5000,
+                panelClass: ['error-snackbar']
+              });
+            }
+          });
+        }
       },
       error: (error) => {
         this.isParsing = false;
@@ -221,7 +287,7 @@ export class UploadComponent implements OnInit {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
-  getDependencyCount(type: 'dependency' | 'devDependency'): number {
+  getDependencyCount(type: 'dependency' | 'devDependency' | 'transitive'): number {
     return this.packages.filter(pkg => pkg.type === type).length;
   }
 
@@ -232,4 +298,64 @@ export class UploadComponent implements OnInit {
   getDevDependenciesCount(): number {
     return this.packages.filter(pkg => pkg.type === 'devDependency').length;
   }
+
+  getTransitiveDependenciesCount(): number {
+    return this.packages.filter(pkg => pkg.type === 'transitive').length;
+  }
+
+  isPackageLockFile(): boolean {
+    return this.selectedFile?.name === 'package-lock.json';
+  }
+
+  // 切換掃描模式
+  onScanModeChange(mode: string): void {
+    const selectedMode = this.scanModes.find(m => m.value === mode);
+    if (selectedMode && this.selectedFile) {
+      this.currentScanConfig = selectedMode.config;
+      
+      // 重新過濾套件
+      this.fileParserService.parsePackageFile(this.selectedFile, this.currentScanConfig).subscribe({
+        next: (filteredPackages) => {
+          this.packages = filteredPackages;
+          this.estimatedScanTime = this.fileParserService.estimateScanTime(filteredPackages);
+          
+          const originalCount = this.allPackages.length;
+          const filteredCount = filteredPackages.length;
+          
+          if (originalCount !== filteredCount) {
+            this.snackBar.open(
+              `已切換至${selectedMode.label}，顯示 ${filteredCount}/${originalCount} 個套件`, 
+              '確定', 
+              { duration: 3000 }
+            );
+          }
+        },
+        error: (error) => {
+          console.error('重新過濾套件失敗:', error);
+        }
+      });
+    }
+  }
+
+  // 取得當前模式描述
+  getCurrentModeDescription(): string {
+    const currentMode = this.scanModes.find(mode => mode.config.mode === this.currentScanConfig.mode);
+    return currentMode?.description || '';
+  }
+
+  // 取得掃描統計資訊
+  getScanStats(): string {
+    if (this.allPackages.length === 0) return '';
+    
+    const total = this.allPackages.length;
+    const current = this.packages.length;
+    const filtered = total - current;
+    
+    if (filtered === 0) {
+      return `將掃描全部 ${total} 個套件`;
+    } else {
+      return `將掃描 ${current} 個套件 (已過濾 ${filtered} 個)`;
+    }
+  }
+
 }

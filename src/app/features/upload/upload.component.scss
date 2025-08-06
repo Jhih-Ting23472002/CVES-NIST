@@ -88,6 +88,7 @@
   }
 }
 
+
 // 驗證結果樣式
 .validation-section {
   margin: 2rem 0;
@@ -192,8 +193,110 @@
         color: #f57c00;
       }
 
+      &.transitive-chip {
+        background-color: #f3e5f5;
+        color: #7b1fa2;
+      }
+
+
       mat-icon {
         margin-right: 0.5rem;
+      }
+    }
+  }
+}
+
+// 掃描模式選擇樣式
+.scan-mode-section {
+  margin-top: 2rem;
+
+  ::ng-deep .mat-expansion-panel-header {
+    padding: 1rem 1.5rem;
+  }
+
+  .scan-mode-content {
+    padding: 1rem 0;
+
+    h4 {
+      margin: 0 0 1rem 0;
+      color: #333;
+      font-weight: 500;
+    }
+
+    .scan-mode-options {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+
+      .scan-mode-option {
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 1rem;
+        transition: all 0.2s ease;
+
+        &:hover {
+          border-color: #1976d2;
+          background-color: #f8f9ff;
+        }
+
+        .mode-content {
+          margin-left: 2rem;
+
+          .mode-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+
+            .mode-label {
+              font-weight: 500;
+              color: #333;
+            }
+
+            .mode-icon-fast {
+              color: #ff9800;
+            }
+
+            .mode-icon-balanced {
+              color: #2196f3;
+            }
+
+            .mode-icon-comprehensive {
+              color: #4caf50;
+            }
+          }
+
+          .mode-description {
+            margin: 0;
+            color: #666;
+            font-size: 0.9rem;
+            line-height: 1.4;
+          }
+        }
+      }
+    }
+
+    .scan-stats {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 1.5rem;
+      padding: 1rem;
+      background-color: #f5f5f5;
+      border-radius: 4px;
+      color: #666;
+      font-size: 0.9rem;
+
+      mat-icon {
+        color: #1976d2;
+        font-size: 1.2rem;
+        width: 1.2rem;
+        height: 1.2rem;
+      }
+
+      .time-estimate {
+        color: #ff9800;
+        font-weight: 500;
       }
     }
   }
@@ -203,15 +306,21 @@
   width: 100%;
   margin: 2rem 0;
 
-  .type-prod {
+  .type-dependency {
     background-color: #e3f2fd;
     color: #1976d2;
   }
 
-  .type-dev {
+  .type-devDependency {
     background-color: #fff3e0;
     color: #f57c00;
   }
+
+  .type-transitive {
+    background-color: #f3e5f5;
+    color: #7b1fa2;
+  }
+
 }
 
 // 步驟操作按鈕
