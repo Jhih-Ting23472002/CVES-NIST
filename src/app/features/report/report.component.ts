@@ -15,7 +15,6 @@ import { VirtualScrollVulnerabilitiesComponent } from '../../shared/components/v
 import { VirtualScrollPackagesComponent } from '../../shared/components/virtual-scroll-packages.component';
 import { PackageInfo, Vulnerability } from '../../core/models/vulnerability.model';
 import { ReportExportService } from '../../core/services/report-export.service';
-import { PerformanceTestHelper } from '../../shared/components/performance-test-helper';
 
 @Component({
   selector: 'app-report',
@@ -256,24 +255,4 @@ export class ReportComponent implements OnInit {
     this.router.navigate(['/scan']);
   }
   
-  testLargeDataset(): void {
-    console.log('🧪 開始效能測試 - 生成大量測試資料...');
-    
-    PerformanceTestHelper.measurePerformance('資料生成', () => {
-      this.scanResults = PerformanceTestHelper.generateLargeDataset(50, 8);
-      this.packages = this.scanResults.map(result => ({
-        name: result.packageName,
-        version: '1.0.0',
-        type: 'dependency' as const
-      }));
-    });
-    
-    PerformanceTestHelper.logMemoryUsage('資料載入後');
-    PerformanceTestHelper.logVirtualScrollBenefits(this.scanResults.length * 8);
-    
-    // 重新設定圖表
-    this.setupChart();
-    
-    console.log(`✅ 測試資料已載入: ${this.scanResults.length} 個套件，共 ${this.getTotalVulnerabilities()} 個漏洞`);
-  }
 }

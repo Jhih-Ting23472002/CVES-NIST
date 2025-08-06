@@ -253,6 +253,26 @@ export class BackgroundTasksComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * 手動清理過期任務
+   */
+  cleanupExpiredTasks(): void {
+    const removedCount = this.backgroundScanService.manualCleanupExpiredTasks();
+    if (removedCount > 0) {
+      this.snackBar.open(`已清理 ${removedCount} 個超過24小時的過期任務`, '確定', { duration: 3000 });
+    } else {
+      this.snackBar.open('沒有需要清理的過期任務', '確定', { duration: 2000 });
+    }
+  }
+
+  /**
+   * 取得下次自動清理時間
+   */
+  getNextCleanupTime(): string {
+    const nextTime = this.backgroundScanService.getNextCleanupTime();
+    return nextTime.toLocaleString();
+  }
+
+  /**
    * 返回首頁
    */
   goHome(): void {

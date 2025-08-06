@@ -6,6 +6,22 @@
       背景任務管理
     </h1>
     <p class="subtitle">管理您的掃描任務，查看執行進度和結果</p>
+    
+    <!-- 清理資訊 -->
+    <div class="cleanup-info">
+      <mat-icon class="info-icon" matTooltip="任務會在24小時後自動清理">auto_delete</mat-icon>
+      <small>
+        系統會自動清理超過24小時的任務 | 下次清理：{{ getNextCleanupTime() }}
+        <button mat-button 
+                color="warn" 
+                class="manual-cleanup-btn"
+                (click)="cleanupExpiredTasks()"
+                matTooltip="立即清理超過24小時的過期任務">
+          <mat-icon>cleaning_services</mat-icon>
+          手動清理
+        </button>
+      </small>
+    </div>
   </div>
 
   <!-- 任務統計 -->

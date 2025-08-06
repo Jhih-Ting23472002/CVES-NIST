@@ -20,6 +20,8 @@ import { FileParserService } from './file-parser.service';
 export class BackgroundScanService {
   private readonly STORAGE_KEY = 'cve_background_scan_state';
   private readonly NOTIFICATION_CONFIG_KEY = 'cve_notification_config';
+  private readonly TASK_EXPIRY_HOURS = 24; // 24小時後自動刪除
+  private readonly CLEANUP_INTERVAL = 60 * 60 * 1000; // 每小時檢查一次 (毫秒)
   
   private state: BackgroundScanState = {
     activeTasks: [],
@@ -29,6 +31,7 @@ export class BackgroundScanService {
   private stateSubject = new BehaviorSubject<BackgroundScanState>(this.state);
   private currentTaskSubject = new Subject<ScanTask | null>();
   private stopCurrentScan$ = new Subject<void>();
+  private cleanupTimer?: any;
 
   public state$ = this.stateSubject.asObservable();
   public currentTask$ = this.currentTaskSubject.asObservable();
@@ -42,6 +45,10 @@ export class BackgroundScanService {
     
     // 頁面載入時檢查是否有未完成的掃描任務
     this.resumeActiveTasks();
+    
+    // 立即執行一次清理，然後啟動定期清理
+    this.cleanupExpiredTasks();
+    this.startCleanupTimer();
   }
 
   /**
@@ -458,5 +465,122 @@ export class BackgroundScanService {
       completed: this.state.completedTasks.filter(t => t.status === 'completed').length,
       failed: this.state.completedTasks.filter(t => t.status === 'failed').length
     };
+  }
+
+  /**
+   * 啟動定期清理計時器
+   */
+  private startCleanupTimer(): void {
+    this.cleanupTimer = setInterval(() => {
+      this.cleanupExpiredTasks();
+    }, this.CLEANUP_INTERVAL);
+  }
+
+  /**
+   * 停止清理計時器
+   */
+  private stopCleanupTimer(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = undefined;
+    }
+  }
+
+  /**
+   * 清理過期的任務
+   */
+  private cleanupExpiredTasks(): void {
+    const now = new Date();
+    const expiryThreshold = new Date(now.getTime() - (this.TASK_EXPIRY_HOURS * 60 * 60 * 1000));
+    
+    let hasChanges = false;
+    
+    // 清理活動任務中超過24小時的已暫停或失敗任務
+    const originalActiveCount = this.state.activeTasks.length;
+    this.state.activeTasks = this.state.activeTasks.filter(task => {
+      // 保留正在執行的任務，不管多久
+      if (task.status === 'running') {
+        return true;
+      }
+      
+      // 檢查任務是否超過24小時
+      const taskTime = task.completedAt || task.startedAt || task.createdAt;
+      const isExpired = taskTime < expiryThreshold;
+      
+      if (isExpired) {
+        console.log(`🗑️ 自動清理過期任務: ${task.name} (創建於: ${taskTime.toLocaleString()})`);
+        return false; // 移除任務
+      }
+      
+      return true; // 保留任務
+    });
+    
+    if (this.state.activeTasks.length !== originalActiveCount) {
+      hasChanges = true;
+    }
+    
+    // 清理已完成任務中超過24小時的任務
+    const originalCompletedCount = this.state.completedTasks.length;
+    this.state.completedTasks = this.state.completedTasks.filter(task => {
+      const taskTime = task.completedAt || task.createdAt;
+      const isExpired = taskTime < expiryThreshold;
+      
+      if (isExpired) {
+        console.log(`🗑️ 自動清理過期完成任務: ${task.name} (完成於: ${taskTime.toLocaleString()})`);
+        return false; // 移除任務
+      }
+      
+      return true; // 保留任務
+    });
+    
+    if (this.state.completedTasks.length !== originalCompletedCount) {
+      hasChanges = true;
+    }
+    
+    // 如果有任務被清理，更新狀態和儲存
+    if (hasChanges) {
+      const removedCount = (originalActiveCount - this.state.activeTasks.length) + 
+                          (originalCompletedCount - this.state.completedTasks.length);
+      console.log(`✨ 自動清理完成，移除了 ${removedCount} 個過期任務`);
+      
+      this.saveState();
+      this.stateSubject.next(this.state);
+    }
+  }
+
+  /**
+   * 檢查任務是否過期
+   */
+  private isTaskExpired(task: ScanTask): boolean {
+    const now = new Date();
+    const expiryThreshold = new Date(now.getTime() - (this.TASK_EXPIRY_HOURS * 60 * 60 * 1000));
+    const taskTime = task.completedAt || task.startedAt || task.createdAt;
+    
+    return taskTime < expiryThreshold;
+  }
+
+  /**
+   * 手動觸發過期任務清理
+   */
+  public manualCleanupExpiredTasks(): number {
+    const beforeCount = this.state.activeTasks.length + this.state.completedTasks.length;
+    this.cleanupExpiredTasks();
+    const afterCount = this.state.activeTasks.length + this.state.completedTasks.length;
+    
+    return beforeCount - afterCount;
+  }
+
+  /**
+   * 取得下次清理時間
+   */
+  public getNextCleanupTime(): Date {
+    return new Date(Date.now() + this.CLEANUP_INTERVAL);
+  }
+
+  /**
+   * 服務銷毀時清理資源
+   */
+  public ngOnDestroy(): void {
+    this.stopCleanupTimer();
   }
 }
