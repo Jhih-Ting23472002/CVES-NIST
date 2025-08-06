@@ -7,12 +7,15 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatExpansionModule } from '@angular/material/expansion';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { BaseChartDirective } from 'ng2-charts';
 import { ChartConfiguration, ChartType } from 'chart.js';
 
-import { VulnerabilityDetailComponent } from '../../shared/components/vulnerability-detail.component';
+import { VirtualScrollVulnerabilitiesComponent } from '../../shared/components/virtual-scroll-vulnerabilities.component';
+import { VirtualScrollPackagesComponent } from '../../shared/components/virtual-scroll-packages.component';
 import { PackageInfo, Vulnerability } from '../../core/models/vulnerability.model';
 import { ReportExportService } from '../../core/services/report-export.service';
+import { PerformanceTestHelper } from '../../shared/components/performance-test-helper';
 
 @Component({
   selector: 'app-report',
@@ -25,8 +28,10 @@ import { ReportExportService } from '../../core/services/report-export.service';
     MatTabsModule,
     MatChipsModule,
     MatExpansionModule,
+    MatTooltipModule,
     BaseChartDirective,
-    VulnerabilityDetailComponent
+    VirtualScrollVulnerabilitiesComponent,
+    VirtualScrollPackagesComponent
   ],
   templateUrl: './report.component.html',
   styleUrls: ['./report.component.scss']
@@ -249,5 +254,26 @@ export class ReportComponent implements OnInit {
 
   goBack(): void {
     this.router.navigate(['/scan']);
+  }
+  
+  testLargeDataset(): void {
+    console.log('🧪 開始效能測試 - 生成大量測試資料...');
+    
+    PerformanceTestHelper.measurePerformance('資料生成', () => {
+      this.scanResults = PerformanceTestHelper.generateLargeDataset(50, 8);
+      this.packages = this.scanResults.map(result => ({
+        name: result.packageName,
+        version: '1.0.0',
+        type: 'dependency' as const
+      }));
+    });
+    
+    PerformanceTestHelper.logMemoryUsage('資料載入後');
+    PerformanceTestHelper.logVirtualScrollBenefits(this.scanResults.length * 8);
+    
+    // 重新設定圖表
+    this.setupChart();
+    
+    console.log(`✅ 測試資料已載入: ${this.scanResults.length} 個套件，共 ${this.getTotalVulnerabilities()} 個漏洞`);
   }
 }

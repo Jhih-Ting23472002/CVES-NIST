@@ -91,51 +91,11 @@
     <!-- 套件列表分頁 -->
     <mat-tab label="套件列表">
       <div class="tab-content">
-        <mat-card *ngFor="let result of scanResults" 
-                  class="package-card"
-                  [class]="'risk-' + getPackageRiskLevel(result.vulnerabilities)">
-          <mat-card-header>
-            <mat-card-title>{{ result.packageName }}</mat-card-title>
-            <mat-card-subtitle>
-              <mat-chip-set>
-                <mat-chip 
-                  [class]="getPackageRiskClass(result.vulnerabilities)"
-                  [highlighted]="true">
-                  {{ getPackageRiskLabel(result.vulnerabilities) }}
-                </mat-chip>
-                <mat-chip 
-                  [class]="getVulnerabilityCountChipClass(result.vulnerabilities)" 
-                  *ngIf="result.vulnerabilities.length > 0">
-                  {{ result.vulnerabilities.length }} 個漏洞
-                </mat-chip>
-              </mat-chip-set>
-            </mat-card-subtitle>
-          </mat-card-header>
-          
-          <mat-card-content *ngIf="result.vulnerabilities.length === 0">
-            <div class="no-vulnerabilities">
-              <mat-icon class="safe-icon">verified</mat-icon>
-              <p>此套件沒有發現已知漏洞</p>
-            </div>
-          </mat-card-content>
-          
-          <mat-card-content *ngIf="result.vulnerabilities.length > 0">
-            <mat-expansion-panel>
-              <mat-expansion-panel-header>
-                <mat-panel-title>
-                  檢視 {{ result.vulnerabilities.length }} 個漏洞詳情
-                </mat-panel-title>
-              </mat-expansion-panel-header>
-              
-              <div class="vulnerabilities-list">
-                <app-vulnerability-detail 
-                  *ngFor="let vulnerability of result.vulnerabilities"
-                  [vulnerability]="vulnerability">
-                </app-vulnerability-detail>
-              </div>
-            </mat-expansion-panel>
-          </mat-card-content>
-        </mat-card>
+        <app-virtual-scroll-packages 
+          [scanResults]="scanResults"
+          [viewportHeight]="650"
+          [itemHeight]="240">
+        </app-virtual-scroll-packages>
       </div>
     </mat-tab>
 
@@ -257,14 +217,11 @@
     <!-- 所有漏洞分頁 -->
     <mat-tab label="所有漏洞" *ngIf="getTotalVulnerabilities() > 0">
       <div class="tab-content">
-        <div class="vulnerabilities-grid">
-          <ng-container *ngFor="let result of scanResults">
-            <app-vulnerability-detail 
-              *ngFor="let vulnerability of result.vulnerabilities"
-              [vulnerability]="vulnerability">
-            </app-vulnerability-detail>
-          </ng-container>
-        </div>
+        <app-virtual-scroll-vulnerabilities 
+          [scanResults]="scanResults"
+          [viewportHeight]="650"
+          [itemHeight]="320">
+        </app-virtual-scroll-vulnerabilities>
       </div>
     </mat-tab>
   </mat-tab-group>
@@ -275,6 +232,14 @@
       <mat-icon>arrow_back</mat-icon>
       返回掃描
     </button>
+    
+    <div class="test-button">
+      <button mat-stroked-button color="warn" (click)="testLargeDataset()" 
+              matTooltip="載入大量測試資料來驗證虛擬滾動效能">
+        <mat-icon>speed</mat-icon>
+        效能測試
+      </button>
+    </div>
     
     <div class="export-buttons">
       <button mat-raised-button color="primary" (click)="exportAsJson()">
