@@ -134,8 +134,9 @@ export class CacheService implements ICacheService {
   }
 
   // 建立特定的快取 key
-  static createVulnerabilityKey(packageName: string, version: string): string {
-    return `vuln:${packageName}@${version}`;
+  static createVulnerabilityKey(packageName: string, version: string, noRejected: boolean = true): string {
+    const baseKey = `vuln:${packageName}@${version}`;
+    return noRejected ? `${baseKey}:noRejected` : baseKey;
   }
 
   static createPackageKey(packageName: string): string {

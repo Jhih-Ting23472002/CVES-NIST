@@ -15,6 +15,7 @@ import { MatRadioModule } from '@angular/material/radio';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatBadgeModule } from '@angular/material/badge';
 import { FormsModule } from '@angular/forms';
+import { ScrollingModule } from '@angular/cdk/scrolling';
 
 import { FileParserService } from '../../core/services/file-parser.service';
 import { BackgroundScanService } from '../../core/services/background-scan.service';
@@ -39,7 +40,8 @@ import { PackageInfo, ValidationResult, ScanConfig, DEFAULT_SCAN_CONFIGS } from 
     MatTooltipModule,
     MatRadioModule,
     MatExpansionModule,
-    MatBadgeModule
+    MatBadgeModule,
+    ScrollingModule
   ],
   templateUrl: './upload.component.html',
   styleUrls: ['./upload.component.scss']
@@ -61,6 +63,8 @@ export class UploadComponent implements OnInit {
   currentScanConfig: ScanConfig = DEFAULT_SCAN_CONFIGS['balanced'];
   estimatedScanTime: { estimatedMinutes: number; description: string } | null = null;
   
+  // UI 狀態控制
+  showPackagesList = false; // 預設不展開套件清單
   displayedColumns = ['name', 'version', 'type'];
 
   // 掃描模式選項
@@ -361,6 +365,11 @@ export class UploadComponent implements OnInit {
     } else {
       return `將掃描 ${current} 個套件 (已過濾 ${filtered} 個)`;
     }
+  }
+
+  // 虛擬滾動 trackBy 函數，提升性能
+  trackByPackageName(_index: number, item: PackageInfo): string {
+    return item.name;
   }
 
 }

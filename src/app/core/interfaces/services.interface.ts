@@ -10,7 +10,6 @@ export interface IFileParserService {
 export interface ICveService {
   scanPackages(packages: PackageInfo[]): Observable<ScanResult>;
   searchVulnerabilities(packageName: string, version: string): Observable<Vulnerability[]>;
-  validateApiKey(): Observable<boolean>;
   checkPackageUpdates(packageName: string, currentVersion: string): Observable<string | null>;
 }
 
@@ -94,8 +93,6 @@ export interface IVulnerabilityProvider {
 }
 
 export interface IConfigService {
-  getApiKey(): string | null;
-  setApiKey(key: string): void;
   getApiEndpoint(): string;
   setApiEndpoint(endpoint: string): void;
   getRequestTimeout(): number;

@@ -12,15 +12,15 @@ export class FileParserService implements IFileParserService {
   parsePackageFile(file: File, scanConfig?: ScanConfig): Observable<PackageInfo[]> {
     const config = scanConfig || DEFAULT_SCAN_CONFIGS['balanced'];
     const isPackageLock = file.name === 'package-lock.json';
-    
+
     return from(this.readFileContent(file)).pipe(
       map(content => {
         try {
           const packageData = JSON.parse(content);
-          const allPackages = isPackageLock ? 
-            this.extractDependenciesFromLock(content) : 
+          const allPackages = isPackageLock ?
+            this.extractDependenciesFromLock(content) :
             this.extractDependencies(content);
-          
+
           return this.filterPackagesByConfig(allPackages, config);
         } catch (error) {
           throw new Error('無效的 JSON 格式');
@@ -81,12 +81,12 @@ export class FileParserService implements IFileParserService {
       this.readFileContent(file).then(content => {
         try {
           const packageJson = JSON.parse(content);
-          
+
           // 檢查必要欄位
           if (!packageJson.name) {
             result.warnings.push(`${isPackageLock ? 'package-lock.json' : 'package.json'} 缺少 name 欄位`);
           }
-          
+
           if (!packageJson.version) {
             result.warnings.push(`${isPackageLock ? 'package-lock.json' : 'package.json'} 缺少 version 欄位`);
           }
@@ -97,7 +97,7 @@ export class FileParserService implements IFileParserService {
             const lockfileVersion = packageJson.lockfileVersion || 1;
             const hasPackages = !!packageJson.packages;
             const hasDependencies = !!packageJson.dependencies;
-            
+
             if (lockfileVersion >= 2 && !hasPackages) {
               result.errors.push('package-lock.json (v2+) 中沒有找到 packages 區段');
               result.isValid = false;
@@ -129,7 +129,7 @@ export class FileParserService implements IFileParserService {
             } else {
               const depCount = Object.keys(packageJson.dependencies || {}).length;
               const devDepCount = Object.keys(packageJson.devDependencies || {}).length;
-              
+
               if (depCount + devDepCount === 0) {
                 result.errors.push('沒有找到任何相依套件');
                 result.isValid = false;
@@ -226,17 +226,17 @@ export class FileParserService implements IFileParserService {
 
       // 取得套件名稱（移除 node_modules/ 前綴和路徑）
       const packageName = this.extractPackageNameFromPath(packagePath);
-      
+
       // 跳過無效的套件名稱
       if (!packageName || packageName.trim() === '') return;
-      
+
       // 判斷是直接相依還是間接相依
       const isDirect = rootDeps.hasOwnProperty(packageName) || rootDevDeps.hasOwnProperty(packageName);
       const isDevDep = rootDevDeps.hasOwnProperty(packageName);
 
       // 安全地處理版本號
       const version = packageInfo.version || '0.0.0';
-      
+
       // 安全地處理 license 欄位
       let license: string | undefined;
       if (packageInfo.license) {
@@ -268,7 +268,7 @@ export class FileParserService implements IFileParserService {
   private parseDependenciesFormat(packageLock: any, packages: PackageInfo[]): PackageInfo[] {
     // 取得根層級的相依性資訊
     const rootDeps = packageLock.dependencies || {};
-    
+
     // 遞迴處理相依性樹
     this.extractFromDependencyTree(rootDeps, packages, 'dependency');
 
@@ -288,7 +288,7 @@ export class FileParserService implements IFileParserService {
       if (!packageName || packageName.trim() === '') return;
 
       const version = packageInfo.version || '0.0.0';
-      
+
       // 安全地處理 license 欄位
       let license: string | undefined;
       if (packageInfo.license) {
@@ -320,7 +320,7 @@ export class FileParserService implements IFileParserService {
   private async readFileContent(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      
+
       reader.onload = (event) => {
         if (event.target?.result) {
           resolve(event.target.result as string);
@@ -328,11 +328,11 @@ export class FileParserService implements IFileParserService {
           reject(new Error('讀取檔案內容失敗'));
         }
       };
-      
+
       reader.onerror = () => {
         reject(new Error('讀取檔案時發生錯誤'));
       };
-      
+
       reader.readAsText(file);
     });
   }
@@ -348,16 +348,16 @@ export class FileParserService implements IFileParserService {
     if (!packagePath || packagePath.trim() === '') {
       return '';
     }
-    
+
     // 移除 node_modules/ 前綴
     let name = packagePath.replace(/^node_modules\//, '');
-    
+
     // 如果還有嵌套的 node_modules，取最後一個
     const lastNodeModulesIndex = name.lastIndexOf('node_modules/');
     if (lastNodeModulesIndex !== -1) {
       name = name.substring(lastNodeModulesIndex + 'node_modules/'.length);
     }
-    
+
     // 處理 scoped packages (例如 @angular/core)
     if (name.startsWith('@')) {
       const parts = name.split('/');
@@ -366,7 +366,7 @@ export class FileParserService implements IFileParserService {
       }
       return name; // 如果格式異常，返回原名稱
     }
-    
+
     // 處理一般套件 - 只取第一個路徑段
     const firstPart = name.split('/')[0];
     return firstPart || '';
@@ -389,30 +389,31 @@ export class FileParserService implements IFileParserService {
     // 測試框架
     'jest', 'mocha', 'chai', 'jasmine', 'karma', 'protractor', 'cypress', 'playwright',
     'vitest', '@testing-library', 'enzyme', 'sinon', 'nyc', 'c8',
-    
+
     // 構建工具
     'webpack', 'rollup', 'vite', 'parcel', 'esbuild', 'swc', 'turbo',
     'gulp', 'grunt', 'browserify', 'snowpack',
-    
+
     // Babel 相關
     '@babel', 'babel-core', 'babel-loader', 'babel-preset', 'babel-plugin',
-    
+
     // TypeScript 相關
     'typescript', 'ts-node', 'ts-loader', 'tsc-watch', '@types',
-    
+
     // ESLint/Prettier
     'eslint', 'prettier', 'stylelint', 'jshint', 'jslint',
     '@eslint', 'eslint-config', 'eslint-plugin',
-    
+
     // 開發伺服器
     'nodemon', 'pm2', 'concurrently', 'cross-env', 'rimraf',
-    
+
     // Angular CLI 工具
     '@angular-devkit', '@schematics', 'ng-packagr',
-    
+
     // 其他工具
     'autoprefixer', 'postcss', 'sass', 'less', 'stylus',
-    'husky', 'lint-staged', 'commitizen', 'semantic-release'
+    'husky', 'lint-staged', 'commitizen', 'semantic-release',
+    'is-number', 'has', 'which', 'string-width', 'ent', 'is-even', 'kind-of', 'is-plain-object'
   ]);
 
   // 過濾套件根據掃描配置
@@ -423,18 +424,18 @@ export class FileParserService implements IFileParserService {
     if (!config.includeDirectDeps) {
       filteredPackages = filteredPackages.filter(pkg => pkg.type !== 'dependency');
     }
-    
+
     if (!config.includeDevDeps) {
       filteredPackages = filteredPackages.filter(pkg => pkg.type !== 'devDependency');
     }
-    
+
     if (!config.includeTransitive) {
       filteredPackages = filteredPackages.filter(pkg => pkg.type !== 'transitive');
     }
 
     // 跳過常見開發工具
     if (config.skipCommonTools) {
-      filteredPackages = filteredPackages.filter(pkg => 
+      filteredPackages = filteredPackages.filter(pkg =>
         !this.isCommonTool(pkg.name)
       );
     }
@@ -455,14 +456,14 @@ export class FileParserService implements IFileParserService {
     if (this.COMMON_TOOLS.has(packageName)) {
       return true;
     }
-    
+
     // 前綴匹配 (如 @babel/core, @types/node)
     for (const tool of this.COMMON_TOOLS) {
       if (packageName.startsWith(tool)) {
         return true;
       }
     }
-    
+
     return false;
   }
 
@@ -477,7 +478,7 @@ export class FileParserService implements IFileParserService {
     const dependencies = packages.filter(pkg => pkg.type === 'dependency').length;
     const devDependencies = packages.filter(pkg => pkg.type === 'devDependency').length;
     const transitive = packages.filter(pkg => pkg.type === 'transitive').length;
-    
+
     return {
       total: packages.length,
       dependencies,
@@ -507,7 +508,7 @@ export class FileParserService implements IFileParserService {
     const avgTimePerPackage = 7; // 秒，對應 NIST API 的 REQUEST_DELAY
     const totalSeconds = count * avgTimePerPackage;
     const minutes = Math.ceil(totalSeconds / 60);
-    
+
     let description = '';
     if (minutes <= 5) {
       description = '快速掃描';
@@ -518,7 +519,7 @@ export class FileParserService implements IFileParserService {
     } else {
       description = '非常長的掃描時間';
     }
-    
+
     return { estimatedMinutes: minutes, description };
   }
 }

@@ -194,6 +194,7 @@ export class ScanComponent implements OnInit, OnDestroy {
    * 開始背景掃描
    */
   startBackgroundScan(): void {
+    // API 配置已在 startScan() 中設定
     const taskName = `掃描任務 - ${new Date().toLocaleString()}`;
     const taskId = this.backgroundScanService.createScanTask(
       taskName,
@@ -358,12 +359,11 @@ export class ScanComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * 顯示掃描選項對話框
+   * 顯示掃描選項
    */
   showScanOptions(): void {
-    // 這裡可以實作一個設定對話框，讓使用者選擇掃描模式
-    // 目前先直接開始掃描
-    this.startScan();
+    // 顯示掃描設定選項，讓使用者可以選擇掃描模式
+    // 不再自動開始掃描，等使用者點擊開始掃描按鈕
   }
 
   /**

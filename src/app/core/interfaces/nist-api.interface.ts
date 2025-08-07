@@ -130,7 +130,9 @@ export interface NistApiParams {
   cvssV3Severity?: string;
   resultsPerPage?: number;
   startIndex?: number;
+  noRejected?: boolean;
 }
+
 
 export interface RateLimitInfo {
   requestsRemaining: number;
