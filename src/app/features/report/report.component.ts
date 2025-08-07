@@ -13,6 +13,7 @@ import { ChartConfiguration, ChartType } from 'chart.js';
 
 import { VirtualScrollVulnerabilitiesComponent } from '../../shared/components/virtual-scroll-vulnerabilities.component';
 import { VirtualScrollPackagesComponent } from '../../shared/components/virtual-scroll-packages.component';
+import { VulnerabilityDetailComponent } from '../../shared/components/vulnerability-detail.component';
 import { PackageInfo, Vulnerability } from '../../core/models/vulnerability.model';
 import { ReportExportService } from '../../core/services/report-export.service';
 
@@ -30,7 +31,8 @@ import { ReportExportService } from '../../core/services/report-export.service';
     MatTooltipModule,
     BaseChartDirective,
     VirtualScrollVulnerabilitiesComponent,
-    VirtualScrollPackagesComponent
+    VirtualScrollPackagesComponent,
+    VulnerabilityDetailComponent
   ],
   templateUrl: './report.component.html',
   styleUrls: ['./report.component.scss']
@@ -39,6 +41,10 @@ export class ReportComponent implements OnInit {
   packages: PackageInfo[] = [];
   scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[] = [];
   scanTimestamp: Date = new Date();
+  groupedScanResults: {
+    mainPackage: {packageName: string, vulnerabilities: Vulnerability[], packageInfo?: PackageInfo},
+    dependencies: {packageName: string, vulnerabilities: Vulnerability[], packageInfo?: PackageInfo}[]
+  }[] = [];
 
   // 圖表配置
   doughnutChartType: ChartType = 'doughnut';
@@ -97,6 +103,7 @@ export class ReportComponent implements OnInit {
     }
     
     this.setupChart();
+    this.groupScanResults();
   }
 
   private createDemoData(): void {
@@ -253,6 +260,94 @@ export class ReportComponent implements OnInit {
 
   goBack(): void {
     this.router.navigate(['/scan']);
+  }
+
+  trackByGroupFn(_: number, group: any): string {
+    return group.mainPackage.packageName;
+  }
+
+  trackByDepFn(_: number, dep: any): string {
+    return dep.packageName;
+  }
+
+  getPackageTypeLabel(type: 'dependency' | 'devDependency' | 'transitive'): string {
+    switch (type) {
+      case 'dependency': return '主要相依';
+      case 'devDependency': return '開發相依';
+      case 'transitive': return '間接相依';
+      default: return '未知';
+    }
+  }
+
+  private groupScanResults(): void {
+    this.groupedScanResults = [];
+    
+    // 取得主套件（dependency 和 devDependency）
+    const mainPackages = this.packages.filter(pkg => 
+      pkg.type === 'dependency' || pkg.type === 'devDependency'
+    );
+    
+    // 取得間接相依套件
+    const transitivePackages = this.packages.filter(pkg => pkg.type === 'transitive');
+    
+    // 為每個主套件建立分組
+    mainPackages.forEach(mainPkg => {
+      const mainScanResult = this.scanResults.find(result => result.packageName === mainPkg.name);
+      
+      if (mainScanResult) {
+        // 找到相關的間接相依套件（這裡簡化處理，實際可能需要更複雜的依賴樹分析）
+        const relatedDependencies = transitivePackages
+          .map(transPkg => {
+            const transScanResult = this.scanResults.find(result => result.packageName === transPkg.name);
+            return transScanResult ? {
+              packageName: transPkg.name,
+              vulnerabilities: transScanResult.vulnerabilities,
+              packageInfo: transPkg
+            } : null;
+          })
+          .filter(dep => dep !== null) as {packageName: string, vulnerabilities: Vulnerability[], packageInfo: PackageInfo}[];
+        
+        this.groupedScanResults.push({
+          mainPackage: {
+            packageName: mainPkg.name,
+            vulnerabilities: mainScanResult.vulnerabilities,
+            packageInfo: mainPkg
+          },
+          dependencies: relatedDependencies
+        });
+      }
+    });
+    
+    // 如果有孤立的間接相依套件（沒有對應的主套件），加入到"其他套件"分組
+    const orphanTransitivePackages = transitivePackages.filter(transPkg => {
+      return !this.groupedScanResults.some(group => 
+        group.dependencies.some(dep => dep.packageName === transPkg.name)
+      );
+    });
+    
+    if (orphanTransitivePackages.length > 0) {
+      const orphanScanResults = orphanTransitivePackages
+        .map(pkg => {
+          const scanResult = this.scanResults.find(result => result.packageName === pkg.name);
+          return scanResult ? {
+            packageName: pkg.name,
+            vulnerabilities: scanResult.vulnerabilities,
+            packageInfo: pkg
+          } : null;
+        })
+        .filter(result => result !== null) as {packageName: string, vulnerabilities: Vulnerability[], packageInfo: PackageInfo}[];
+      
+      if (orphanScanResults.length > 0) {
+        this.groupedScanResults.push({
+          mainPackage: {
+            packageName: '其他間接相依套件',
+            vulnerabilities: [],
+            packageInfo: undefined
+          },
+          dependencies: orphanScanResults
+        });
+      }
+    }
   }
   
 }

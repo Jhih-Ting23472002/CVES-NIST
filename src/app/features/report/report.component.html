@@ -91,11 +91,133 @@
     <!-- 套件列表分頁 -->
     <mat-tab label="套件列表">
       <div class="tab-content">
-        <app-virtual-scroll-packages 
-          [scanResults]="scanResults"
-          [viewportHeight]="650"
-          [itemHeight]="240">
-        </app-virtual-scroll-packages>
+        <div class="grouped-packages-container" *ngIf="groupedScanResults.length > 0">
+          <mat-accordion class="packages-accordion">
+            <mat-expansion-panel 
+              *ngFor="let group of groupedScanResults; trackBy: trackByGroupFn" 
+              class="package-group-panel"
+              [class]="'risk-' + getPackageRiskLevel(group.mainPackage.vulnerabilities)">
+              
+              <!-- 主套件標題 -->
+              <mat-expansion-panel-header>
+                <mat-panel-title class="package-group-title">
+                  <div class="package-header-content">
+                    <div class="package-name-section">
+                      <span class="package-name">{{ group.mainPackage.packageName }}</span>
+                      <mat-chip 
+                        [class]="getPackageRiskClass(group.mainPackage.vulnerabilities)"
+                        class="risk-chip">
+                        {{ getPackageRiskLabel(group.mainPackage.vulnerabilities) }}
+                      </mat-chip>
+                      <mat-chip 
+                        *ngIf="group.mainPackage.packageInfo?.type" 
+                        class="type-chip">
+                        {{ getPackageTypeLabel(group.mainPackage.packageInfo!.type) }}
+                      </mat-chip>
+                    </div>
+                    <div class="package-stats">
+                      <span *ngIf="group.mainPackage.vulnerabilities.length > 0" class="vulnerability-count">
+                        {{ group.mainPackage.vulnerabilities.length }} 個漏洞
+                      </span>
+                      <span *ngIf="group.dependencies.length > 0" class="dependencies-count">
+                        {{ group.dependencies.length }} 個相依套件
+                      </span>
+                    </div>
+                  </div>
+                </mat-panel-title>
+              </mat-expansion-panel-header>
+              
+              <!-- 展開內容 -->
+              <div class="package-group-content">
+                
+                <!-- 主套件漏洞詳情 -->
+                <div class="main-package-section" *ngIf="group.mainPackage.vulnerabilities.length > 0">
+                  <h4 class="section-title">
+                    <mat-icon>bug_report</mat-icon>
+                    {{ group.mainPackage.packageName }} 的漏洞
+                  </h4>
+                  <div class="vulnerabilities-grid">
+                    <app-vulnerability-detail 
+                      *ngFor="let vulnerability of group.mainPackage.vulnerabilities"
+                      [vulnerability]="vulnerability">
+                    </app-vulnerability-detail>
+                  </div>
+                </div>
+                
+                <div class="main-package-section" *ngIf="group.mainPackage.vulnerabilities.length === 0 && group.mainPackage.packageInfo">
+                  <div class="no-vulnerabilities">
+                    <mat-icon class="safe-icon">verified</mat-icon>
+                    <p>{{ group.mainPackage.packageName }} 沒有發現已知漏洞</p>
+                  </div>
+                </div>
+                
+                <!-- 相依套件區塊 -->
+                <div class="dependencies-section" *ngIf="group.dependencies.length > 0">
+                  <h4 class="section-title">
+                    <mat-icon>account_tree</mat-icon>
+                    相依套件 ({{ group.dependencies.length }})
+                  </h4>
+                  <div class="dependencies-list">
+                    <mat-card 
+                      *ngFor="let dep of group.dependencies; trackBy: trackByDepFn" 
+                      class="dependency-card"
+                      [class]="'risk-' + getPackageRiskLevel(dep.vulnerabilities)">
+                      
+                      <mat-card-header>
+                        <mat-card-title class="dependency-title">{{ dep.packageName }}</mat-card-title>
+                        <mat-card-subtitle>
+                          <mat-chip-set>
+                            <mat-chip 
+                              [class]="getPackageRiskClass(dep.vulnerabilities)"
+                              [highlighted]="true">
+                              {{ getPackageRiskLabel(dep.vulnerabilities) }}
+                            </mat-chip>
+                            <mat-chip 
+                              [class]="getVulnerabilityCountChipClass(dep.vulnerabilities)" 
+                              *ngIf="dep.vulnerabilities.length > 0">
+                              {{ dep.vulnerabilities.length }} 個漏洞
+                            </mat-chip>
+                          </mat-chip-set>
+                        </mat-card-subtitle>
+                      </mat-card-header>
+                      
+                      <mat-card-content *ngIf="dep.vulnerabilities.length === 0">
+                        <div class="no-vulnerabilities small">
+                          <mat-icon class="safe-icon">verified</mat-icon>
+                          <p>此套件沒有發現已知漏洞</p>
+                        </div>
+                      </mat-card-content>
+                      
+                      <mat-card-content *ngIf="dep.vulnerabilities.length > 0">
+                        <mat-expansion-panel class="nested-vulnerabilities">
+                          <mat-expansion-panel-header>
+                            <mat-panel-title>
+                              檢視 {{ dep.vulnerabilities.length }} 個漏洞詳情
+                            </mat-panel-title>
+                          </mat-expansion-panel-header>
+                          
+                          <div class="vulnerabilities-list">
+                            <app-vulnerability-detail 
+                              *ngFor="let vulnerability of dep.vulnerabilities"
+                              [vulnerability]="vulnerability">
+                            </app-vulnerability-detail>
+                          </div>
+                        </mat-expansion-panel>
+                      </mat-card-content>
+                    </mat-card>
+                  </div>
+                </div>
+                
+              </div>
+            </mat-expansion-panel>
+          </mat-accordion>
+        </div>
+        
+        <!-- 空狀態 -->
+        <div class="empty-state" *ngIf="groupedScanResults.length === 0">
+          <mat-icon>inbox</mat-icon>
+          <p>沒有套件資料</p>
+        </div>
       </div>
     </mat-tab>
 
