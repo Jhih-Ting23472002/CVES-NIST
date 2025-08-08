@@ -38,6 +38,7 @@ A comprehensive security vulnerability scanner for Node.js projects that analyze
 - Real-time progress tracking during scans
 - Visual charts showing risk distribution
 - Virtual scrolling for large datasets (performance optimized)
+- Package grouping with collapsible panels
 - Detailed vulnerability information including:
   - CVE identifiers and descriptions
   - CVSS scores and vectors
@@ -51,7 +52,7 @@ A comprehensive security vulnerability scanner for Node.js projects that analyze
 - All exports include scan timestamps and comprehensive metadata
 
 #### 🎨 **User Interface**
-- Modern Material Design interface
+- Modern Material Design interface with Indigo-Pink theme
 - Responsive design for desktop and mobile
 - Color-coded severity indicators
 - Intuitive navigation with four main sections:
@@ -87,7 +88,7 @@ npm install
 npm start
 ```
 
-The application will be available at `http://localhost:4200`
+The application will be available at `http://localhost:4300`
 
 #### Usage
 
@@ -109,7 +110,7 @@ The application will be available at `http://localhost:4200`
 
 4. **View Report**
    - Access detailed vulnerability information
-   - Browse by package or view all vulnerabilities
+   - Browse by package groups or view all vulnerabilities
    - Read risk analysis and security recommendations
 
 5. **Export Results**
@@ -147,7 +148,9 @@ src/app/
 │       ├── background-scan.service.ts  # Background task management ⭐ NEW
 │       ├── cache.service.ts            # LRU caching system
 │       ├── file-parser.service.ts      # File parsing logic
-│       └── nist-api.service.ts         # NIST API integration
+│       ├── nist-api.service.ts         # NIST API integration
+│       ├── report-export.service.ts    # Export functionality
+│       └── version-recommendation.service.ts  # Version recommendations
 ├── features/               # Feature modules
 │   ├── upload/            # File upload component
 │   ├── scan/              # Scanning interface
@@ -155,13 +158,16 @@ src/app/
 │   └── background-tasks/  # Background task management ⭐ NEW
 └── shared/                # Shared components
     ├── components/        # Reusable UI components
+    │   ├── vulnerability-detail.component.ts
+    │   ├── virtual-scroll-packages.component.ts
+    │   └── virtual-scroll-vulnerabilities.component.ts
     └── material/          # Material Design modules
 ```
 
 ### Development Commands
 
 ```bash
-# Development server
+# Development server (running on port 4300)
 npm start
 
 # Build for production
@@ -230,6 +236,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - 掃描過程中的即時進度追蹤
 - 視覺化圖表顯示風險分佈
 - 大型資料集的虛擬捲動（效能最佳化）
+- 套件分組顯示與折疊面板
 - 詳細漏洞資訊包含：
   - CVE 識別碼和描述
   - CVSS 分數和向量
@@ -243,7 +250,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - 所有匯出皆包含掃描時間戳記和完整中繼資料
 
 #### 🎨 **使用者介面**
-- 現代化 Material Design 介面
+- 現代化 Material Design 介面（Indigo-Pink 主題）
 - 響應式設計支援桌面和行動裝置
 - 顏色編碼的嚴重性指示器
 - 直觀的四階段導航：
@@ -279,7 +286,7 @@ npm install
 npm start
 ```
 
-應用程式將在 `http://localhost:4200` 提供服務
+應用程式將在 `http://localhost:4300` 提供服務
 
 #### 使用方法
 
@@ -301,7 +308,7 @@ npm start
 
 4. **檢視報告**
    - 存取詳細漏洞資訊
-   - 依套件瀏覽或檢視所有漏洞
+   - 依套件群組瀏覽或檢視所有漏洞
    - 閱讀風險分析和安全建議
 
 5. **匯出結果**
@@ -339,7 +346,9 @@ src/app/
 │       ├── background-scan.service.ts  # 背景任務管理 ⭐ 全新功能
 │       ├── cache.service.ts            # LRU 快取系統
 │       ├── file-parser.service.ts      # 檔案解析邏輯
-│       └── nist-api.service.ts         # NIST API 整合
+│       ├── nist-api.service.ts         # NIST API 整合
+│       ├── report-export.service.ts    # 匯出功能
+│       └── version-recommendation.service.ts  # 版本建議
 ├── features/               # 功能模組
 │   ├── upload/            # 檔案上傳元件
 │   ├── scan/              # 掃描介面
@@ -347,13 +356,16 @@ src/app/
 │   └── background-tasks/  # 背景任務管理 ⭐ 全新功能
 └── shared/                # 共用元件
     ├── components/        # 可重用 UI 元件
+    │   ├── vulnerability-detail.component.ts
+    │   ├── virtual-scroll-packages.component.ts
+    │   └── virtual-scroll-vulnerabilities.component.ts
     └── material/          # Material Design 模組
 ```
 
 ### 開發指令
 
 ```bash
-# 開發伺服器
+# 開發伺服器（執行於 4300 連接埠）
 npm start
 
 # 正式環境建置
@@ -451,35 +463,37 @@ graph TD
 ```mermaid
 graph TD
     A[Generate Report] --> B[Display Statistics]
-    B --> C[Show Vulnerability Details]
-    C --> D[Risk Analysis]
-    D --> E[Export Options]
-    E --> F[JSON/CSV Export]
+    B --> C[Show Package Groups]
+    C --> D[Show Vulnerability Details]
+    D --> E[Risk Analysis]
+    E --> F[Export Options]
+    F --> G[JSON/CSV Export]
 ```
 
 ---
 
 ## Changelog / 更新日誌
 
-### v2.0.0 (Current) ⭐ Major Update
+### v2.1.0 (Current) ⭐ Enhanced Features
+- ✅ **Version recommendation system**: Smart suggestions for vulnerable packages
+- ✅ **Package grouping**: Organized display with collapsible sections
+- ✅ **Virtual scrolling improvements**: Better performance for large datasets
+- ✅ **Enhanced file parsing**: Improved support for various package formats
+- ✅ **UI/UX enhancements**: Better visual indicators and user experience
+
+### v2.0.0 (Previous) ⭐ Major Update
 - ✅ **Background scanning system**: Non-blocking scans with task management
 - ✅ **Persistent task states**: Tasks survive page refreshes and browser restarts  
 - ✅ **Browser notifications**: Get notified when background scans complete
 - ✅ **Automatic task cleanup**: Tasks older than 24 hours automatically removed
 - ✅ **Task management UI**: Comprehensive background task management page
 - ✅ **Foreground switching**: Convert background tasks to foreground view
-- ✅ **Smart navigation**: Task status indicators and quick access buttons
-- ✅ **Enhanced scan modes**: Configurable scan depth and filtering options
-- ✅ **Virtual scrolling**: Performance optimization for large vulnerability lists
-- ✅ **Improved file parsing**: Enhanced support for package-lock.json v1 and v2
 
-### v1.0.0 (Previous)
+### v1.0.0 (Initial)
 - ✅ Complete NIST API integration
 - ✅ Real-time vulnerability scanning
 - ✅ Comprehensive reporting dashboard
-- ✅ Multiple export formats (JSON, CSV, HTML)
-- ✅ Scan timestamp tracking
-- ✅ Color-coded severity indicators
+- ✅ Multiple export formats (JSON, CSV)
 - ✅ LRU caching system
 - ✅ Automatic rate limiting with retry logic
 

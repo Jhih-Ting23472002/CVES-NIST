@@ -255,7 +255,10 @@ export class FileParserService implements IFileParserService {
         resolved: packageInfo.resolved,
         integrity: packageInfo.integrity,
         dev: packageInfo.dev || false,
-        license: license
+        license: license,
+        packageKey: `${packageName}@${version}`,
+        isPrimary: isDirect,
+        dependencyPath: this.extractDependencyPath(packagePath)
       });
     });
 
@@ -307,7 +310,10 @@ export class FileParserService implements IFileParserService {
         resolved: packageInfo.resolved,
         integrity: packageInfo.integrity,
         dev: type === 'devDependency',
-        license: license
+        license: license,
+        packageKey: `${packageName}@${version}`,
+        isPrimary: !isTransitive,
+        dependencyPath: isTransitive ? [packageName] : []
       });
 
       // 遞迴處理嵌套的相依性（標記為間接相依）
@@ -372,16 +378,109 @@ export class FileParserService implements IFileParserService {
     return firstPart || '';
   }
 
-  // 輔助方法：移除重複的套件（保留第一個出現的版本）
-  private removeDuplicatePackages(packages: PackageInfo[]): PackageInfo[] {
-    const seen = new Set<string>();
-    return packages.filter(pkg => {
-      if (seen.has(pkg.name)) {
-        return false;
+  // 輔助方法：從套件路徑提取依賴路徑
+  private extractDependencyPath(packagePath: string): string[] {
+    if (!packagePath || packagePath.trim() === '') {
+      return [];
+    }
+
+    const pathSegments = packagePath.split('/node_modules/').filter(segment => segment.trim() !== '');
+    
+    // 移除第一個空的 node_modules 前綴（如果有的話）
+    if (pathSegments[0] === '') {
+      pathSegments.shift();
+    }
+
+    // 清理每個路徑段，確保 scoped packages 正確處理
+    const cleanedPath = pathSegments.map(segment => {
+      segment = segment.replace(/^node_modules\//, '');
+      
+      // 對於 scoped packages，確保包含完整名稱
+      if (segment.startsWith('@')) {
+        const parts = segment.split('/');
+        if (parts.length >= 2) {
+          return parts.slice(0, 2).join('/');
+        }
       }
-      seen.add(pkg.name);
-      return true;
+      
+      return segment.split('/')[0];
     });
+
+    return cleanedPath.filter(path => path.trim() !== '');
+  }
+
+  // 輔助方法：合併同名套件的不同版本
+  private removeDuplicatePackages(packages: PackageInfo[]): PackageInfo[] {
+    const packageMap = new Map<string, PackageInfo[]>();
+    
+    // 按套件名稱分組
+    packages.forEach(pkg => {
+      const key = pkg.name;
+      if (!packageMap.has(key)) {
+        packageMap.set(key, []);
+      }
+      packageMap.get(key)!.push(pkg);
+    });
+    
+    const result: PackageInfo[] = [];
+    
+    // 處理每個套件群組
+    packageMap.forEach((versions) => {
+      if (versions.length === 1) {
+        // 只有一個版本，直接加入
+        result.push(versions[0]);
+      } else {
+        // 有多個版本，需要決策
+        const uniqueVersions = this.deduplicateVersions(versions);
+        result.push(...uniqueVersions);
+      }
+    });
+    
+    return result;
+  }
+  
+  // 處理同套件的多版本情況
+  private deduplicateVersions(packages: PackageInfo[]): PackageInfo[] {
+    const versionMap = new Map<string, PackageInfo>();
+    
+    packages.forEach(pkg => {
+      const versionKey = pkg.version;
+      
+      if (!versionMap.has(versionKey)) {
+        versionMap.set(versionKey, pkg);
+      } else {
+        // 同版本但不同類型，優先保留直接依賴
+        const existing = versionMap.get(versionKey)!;
+        const newPkg = this.selectBetterPackageInfo(existing, pkg);
+        versionMap.set(versionKey, newPkg);
+      }
+    });
+    
+    return Array.from(versionMap.values());
+  }
+  
+  // 選擇較佳的套件資訊（優先級：dependency > devDependency > transitive）
+  private selectBetterPackageInfo(existing: PackageInfo, candidate: PackageInfo): PackageInfo {
+    const typePriority = { 'dependency': 0, 'devDependency': 1, 'transitive': 2 };
+    const existingPriority = typePriority[existing.type];
+    const candidatePriority = typePriority[candidate.type];
+    
+    if (candidatePriority < existingPriority) {
+      return candidate;
+    } else if (candidatePriority === existingPriority) {
+      // 相同優先級，合併資訊
+      return {
+        ...existing,
+        // 保留更完整的描述
+        description: candidate.description || existing.description,
+        // 保留 resolved 和 integrity 資訊
+        resolved: candidate.resolved || existing.resolved,
+        integrity: candidate.integrity || existing.integrity,
+        license: candidate.license || existing.license
+      };
+    }
+    
+    return existing;
   }
 
   // 常見的開發工具和構建工具套件 (通常安全風險較低)
@@ -504,22 +603,29 @@ export class FileParserService implements IFileParserService {
     description: string;
   } {
     const count = packages.length;
-    // NIST API 每個套件間隔 7 秒 + 約 1-3 秒的 API 回應時間
-    const avgTimePerPackage = 7; // 秒，對應 NIST API 的 REQUEST_DELAY
+    // NIST API 每個套件間隔 12 秒 + API 回應時間，再加上版本推薦 5 秒
+    const mainScanTimePerPackage = 12; // 秒，對應 NIST API 的 REQUEST_DELAY
+    const versionRecommendationTime = 5; // 秒，版本推薦服務的延遲
+    const avgTimePerPackage = mainScanTimePerPackage + versionRecommendationTime; // 總共 17 秒/套件
     const totalSeconds = count * avgTimePerPackage;
     const minutes = Math.ceil(totalSeconds / 60);
 
     let description = '';
-    if (minutes <= 5) {
+    if (minutes <= 3) {
       description = '快速掃描';
-    } else if (minutes <= 20) {
+    } else if (minutes <= 10) {
       description = '中等掃描時間';
-    } else if (minutes <= 60) {
+    } else if (minutes <= 30) {
       description = '長時間掃描';
-    } else {
+    } else if (minutes <= 60) {
       description = '非常長的掃描時間';
+    } else {
+      description = '超長掃描時間（建議使用背景掃描）';
     }
 
-    return { estimatedMinutes: minutes, description };
+    return {
+      estimatedMinutes: minutes,
+      description: `${description} (約 ${count} 個套件 × ${avgTimePerPackage} 秒 = ${minutes} 分鐘)`
+    };
   }
 }

@@ -123,11 +123,13 @@ export interface NistReference {
 export interface NistApiParams {
   keywordSearch?: string;
   cveId?: string;
+  cpeName?: string;
   pubStartDate?: string;
   pubEndDate?: string;
   lastModStartDate?: string;
   lastModEndDate?: string;
   cvssV3Severity?: string;
+  cvssV3Metrics?: string;
   resultsPerPage?: number;
   startIndex?: number;
   noRejected?: boolean;
@@ -140,4 +142,46 @@ export interface RateLimitInfo {
   requestsMade: number;
   maxRequests: number;
   timeWindow: number;
+}
+
+// CPE API 相關介面
+export interface CpeApiResponse {
+  resultsPerPage: number;
+  startIndex: number;
+  totalResults: number;
+  format: string;
+  version: string;
+  timestamp: string;
+  products: CpeItem[];
+}
+
+export interface CpeItem {
+  cpe: {
+    cpeName: string;
+    cpeNameId: string;
+    lastModified: string;
+    created: string;
+    titles: CpeTitle[];
+    refs: CpeReference[];
+  };
+}
+
+export interface CpeTitle {
+  title: string;
+  lang: string;
+}
+
+export interface CpeReference {
+  ref: string;
+  type?: string;
+}
+
+export interface CpeApiParams {
+  keywordSearch?: string;
+  cpeMatchString?: string;
+  matchCriteriaId?: string;
+  lastModStartDate?: string;
+  lastModEndDate?: string;
+  resultsPerPage?: number;
+  startIndex?: number;
 }

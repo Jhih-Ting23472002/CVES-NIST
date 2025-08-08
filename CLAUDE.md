@@ -3,6 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 - 過程用zh-TW回答
+- 不知道的事情不要亂回答
 
 ## 開發指令
 

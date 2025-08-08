@@ -151,6 +151,114 @@
                   </div>
                 </div>
                 
+                <!-- 版本推薦區塊 -->
+                <div class="version-recommendation-section" *ngIf="group.mainPackage.packageInfo && shouldShowRecommendation(group.mainPackage.packageInfo)">
+                  <h4 class="section-title">
+                    <mat-icon>upgrade</mat-icon>
+                    版本建議
+                  </h4>
+                  
+                  <!-- 載入中狀態 -->
+                  <div class="loading-recommendation" *ngIf="getPackageRecommendationStatus(group.mainPackage.packageInfo) === 'loading'">
+                    <mat-icon class="loading-spinner">refresh</mat-icon>
+                    <span>正在分析最佳版本...</span>
+                  </div>
+                  
+                  <!-- 推薦結果 -->
+                  <mat-card class="recommendation-card" *ngIf="getPackageRecommendationStatus(group.mainPackage.packageInfo) === 'completed' && getRecommendation(group.mainPackage.packageInfo) as recommendation">
+                    <mat-card-header>
+                      <mat-card-title class="recommendation-title">
+                        <ng-container *ngIf="recommendation.hasData && recommendation.recommendedVersion; else noDataTitle">
+                          <mat-icon class="upgrade-icon">system_update</mat-icon>
+                          建議升級至 {{ recommendation.recommendedVersion }}
+                        </ng-container>
+                        <ng-template #noDataTitle>
+                          <ng-container *ngIf="recommendation.hasData; else noDataInfo">
+                            <mat-icon class="safe-icon">verified</mat-icon>
+                            目前版本安全
+                          </ng-container>
+                          <ng-template #noDataInfo>
+                            <mat-icon class="no-data-icon">help_outline</mat-icon>
+                            無推薦版本資訊
+                          </ng-template>
+                        </ng-template>
+                      </mat-card-title>
+                      <mat-card-subtitle *ngIf="recommendation.hasData && recommendation.updateStrategy !== 'unknown'">
+                        <mat-chip [class]="getUpdateStrategyClass(recommendation.updateStrategy)">
+                          {{ getUpdateStrategyText(recommendation.updateStrategy) }}
+                        </mat-chip>
+                      </mat-card-subtitle>
+                    </mat-card-header>
+                    
+                    <mat-card-content>
+                      <div class="recommendation-details">
+                        <div class="recommendation-reason" [class.safe-reason]="recommendation.hasData && !recommendation.recommendedVersion" [class.no-data-reason]="!recommendation.hasData">
+                          <strong>{{ recommendation.hasData ? (recommendation.recommendedVersion ? '推薦原因' : '狀態') : '詳細說明' }}：</strong>
+                          {{ recommendation.reason }}
+                        </div>
+                        
+                        <!-- 修復版本資訊 -->
+                        <div class="fixed-versions" *ngIf="recommendation.fixedVersions && recommendation.fixedVersions.length > 0">
+                          <strong>從漏洞資料中找到的修復版本：</strong>
+                          <div class="version-chips">
+                            <mat-chip *ngFor="let version of recommendation.fixedVersions" class="fixed-version-chip">
+                              {{ version }}
+                            </mat-chip>
+                          </div>
+                        </div>
+                        
+                        <div class="security-improvement" *ngIf="recommendation.securityImprovement && recommendation.hasData">
+                          <div class="improvement-stats">
+                            <div class="stat-item">
+                              <span class="stat-label">目前漏洞：</span>
+                              <span class="stat-value current">{{ recommendation.securityImprovement.currentVulnerabilities }}</span>
+                            </div>
+                            <mat-icon class="arrow-icon">arrow_forward</mat-icon>
+                            <div class="stat-item">
+                              <span class="stat-label">修復後：</span>
+                              <span class="stat-value recommended">{{ recommendation.securityImprovement.recommendedVulnerabilities }}</span>
+                            </div>
+                          </div>
+                          
+                          <div class="severity-change">
+                            <strong>安全改善：</strong>
+                            {{ recommendation.securityImprovement.severityReduction }}
+                          </div>
+                        </div>
+
+                        <!-- 無資料提示 -->
+                        <div class="no-data-info" *ngIf="!recommendation.hasData">
+                          <div class="no-data-header">
+                            <mat-icon class="info-icon">info_outline</mat-icon>
+                            <span class="no-data-title">無推薦版本資訊</span>
+                          </div>
+                          <div class="no-data-content">
+                            <p class="no-data-reason">{{ recommendation.reason }}</p>
+                            <div class="no-data-suggestions">
+                              <strong>建議操作：</strong>
+                              <ul>
+                                <li>查看套件的官方文件或 GitHub 發布頁面</li>
+                                <li>檢查套件是否有新版本可用</li>
+                                <li>考慮尋找替代的安全套件</li>
+                              </ul>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </mat-card-content>
+                  </mat-card>
+                  
+                  <!-- 錯誤狀態 -->
+                  <div class="recommendation-error" *ngIf="getPackageRecommendationStatus(group.mainPackage.packageInfo) === 'error' && getRecommendationError(group.mainPackage.packageInfo) as error">
+                    <mat-icon class="error-icon">error</mat-icon>
+                    <span>{{ error }}</span>
+                    <button mat-button color="primary" (click)="loadRecommendationForPackage(group.mainPackage.packageInfo!)" class="retry-button">
+                      <mat-icon>refresh</mat-icon>
+                      重試
+                    </button>
+                  </div>
+                </div>
+                
                 <!-- 相依套件區塊 -->
                 <div class="dependencies-section" *ngIf="group.dependencies.length > 0">
                   <h4 class="section-title">
@@ -187,6 +295,44 @@
                           <p>此套件沒有發現已知漏洞</p>
                         </div>
                       </mat-card-content>
+                      
+                      <!-- 依賴套件版本推薦 -->
+                      <mat-card-actions *ngIf="dep.packageInfo && shouldShowRecommendation(dep.packageInfo)">
+                        <!-- 載入中 -->
+                        <div class="dependency-loading" *ngIf="getPackageRecommendationStatus(dep.packageInfo) === 'loading'">
+                          <mat-icon class="loading-mini-icon">refresh</mat-icon>
+                          <span>分析中...</span>
+                        </div>
+                        
+                        <!-- 推薦結果 -->
+                        <div class="dependency-recommendation" *ngIf="getPackageRecommendationStatus(dep.packageInfo) === 'completed' && getRecommendation(dep.packageInfo) as depRecommendation">
+                          <div class="mini-recommendation">
+                            <ng-container *ngIf="depRecommendation.hasData && depRecommendation.recommendedVersion">
+                              <mat-icon class="upgrade-mini-icon">upgrade</mat-icon>
+                              <span class="recommendation-text">
+                                建議升級至 <strong>{{ depRecommendation.recommendedVersion }}</strong>
+                              </span>
+                              <mat-chip class="mini-chip" [class]="getUpdateStrategyClass(depRecommendation.updateStrategy)">
+                                {{ getUpdateStrategyText(depRecommendation.updateStrategy) }}
+                              </mat-chip>
+                            </ng-container>
+                            
+                            <ng-container *ngIf="!depRecommendation.hasData">
+                              <mat-icon class="info-mini-icon">info</mat-icon>
+                              <span class="no-data-text">無推薦資訊</span>
+                            </ng-container>
+                          </div>
+                        </div>
+                        
+                        <!-- 錯誤狀態 -->
+                        <div class="dependency-error" *ngIf="getPackageRecommendationStatus(dep.packageInfo) === 'error'">
+                          <mat-icon class="error-mini-icon">error</mat-icon>
+                          <span>推薦失敗</span>
+                          <button mat-icon-button (click)="loadRecommendationForPackage(dep.packageInfo!)" class="retry-mini-button">
+                            <mat-icon>refresh</mat-icon>
+                          </button>
+                        </div>
+                      </mat-card-actions>
                       
                       <mat-card-content *ngIf="dep.vulnerabilities.length > 0">
                         <mat-expansion-panel class="nested-vulnerabilities">
