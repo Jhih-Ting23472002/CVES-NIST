@@ -16,6 +16,34 @@
   height: fit-content;
 }
 
+// Header 樣式
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  width: 100%;
+
+  .title-section {
+    flex: 1;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: 1rem;
+
+    .mat-mdc-icon-button {
+      position: relative;
+      
+      .mat-badge {
+        font-size: 0.7rem;
+        font-weight: bold;
+      }
+    }
+  }
+}
+
 // 上傳區域樣式
 .upload-zone {
   border: 2px dashed #ccc;
@@ -302,6 +330,128 @@
   }
 }
 
+// 套件清單折疊面板樣式
+.packages-list-section {
+  margin-top: 2rem;
+
+  ::ng-deep .mat-expansion-panel-header {
+    padding: 1rem 1.5rem;
+  }
+
+  .virtual-scroll-container {
+    margin-top: 1rem;
+  }
+
+  .packages-viewport {
+    height: 300px; // 固定高度以啟用虛擬滾動
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+  }
+
+  .packages-table-header {
+    position: sticky;
+    top: 0;
+    background-color: #f8f9fa;
+    z-index: 10;
+    border-bottom: 1px solid #e0e0e0;
+
+    .header-row {
+      display: flex;
+      align-items: center;
+      padding: 12px 16px;
+      font-weight: 500;
+      color: #666;
+      font-size: 0.875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .header-cell {
+      &.name-column {
+        flex: 2;
+        min-width: 200px;
+      }
+
+      &.version-column {
+        flex: 1;
+        min-width: 100px;
+      }
+
+      &.type-column {
+        flex: 1;
+        min-width: 80px;
+        text-align: center;
+      }
+    }
+  }
+
+  .package-row {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid #f0f0f0;
+    transition: background-color 0.2s ease;
+
+    &:hover {
+      background-color: #f8f9fa;
+    }
+
+    &:last-child {
+      border-bottom: none;
+    }
+
+    .package-cell {
+      display: flex;
+      align-items: center;
+
+      &.name-column {
+        flex: 2;
+        min-width: 200px;
+        font-weight: 500;
+        color: #333;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      &.version-column {
+        flex: 1;
+        min-width: 100px;
+        color: #666;
+        font-family: 'Roboto Mono', monospace;
+        font-size: 0.875rem;
+      }
+
+      &.type-column {
+        flex: 1;
+        min-width: 80px;
+        justify-content: center;
+
+        .package-type-chip {
+          font-size: 0.75rem;
+          min-height: 24px;
+          border-radius: 12px;
+          
+          &.type-dependency {
+            background-color: #e3f2fd;
+            color: #1976d2;
+          }
+
+          &.type-devDependency {
+            background-color: #fff3e0;
+            color: #f57c00;
+          }
+
+          &.type-transitive {
+            background-color: #f3e5f5;
+            color: #7b1fa2;
+          }
+        }
+      }
+    }
+  }
+}
+
 .packages-table {
   width: 100%;
   margin: 2rem 0;
@@ -404,6 +554,59 @@
 
   .packages-table {
     font-size: 0.9rem;
+  }
+
+  .packages-list-section {
+    .packages-viewport {
+      height: 250px; // 移動裝置上稍微縮小
+    }
+
+    .package-row {
+      padding: 8px 12px;
+      
+      .package-cell {
+        &.name-column {
+          min-width: 120px;
+          font-size: 0.875rem;
+        }
+
+        &.version-column {
+          min-width: 80px;
+          font-size: 0.75rem;
+        }
+
+        &.type-column {
+          min-width: 60px;
+          
+          .package-type-chip {
+            font-size: 0.65rem;
+            min-height: 20px;
+          }
+        }
+      }
+    }
+
+    .packages-table-header {
+      .header-row {
+        padding: 8px 12px;
+        
+        .header-cell {
+          font-size: 0.75rem;
+          
+          &.name-column {
+            min-width: 120px;
+          }
+
+          &.version-column {
+            min-width: 80px;
+          }
+
+          &.type-column {
+            min-width: 60px;
+          }
+        }
+      }
+    }
   }
 
   .help-steps {

@@ -1,11 +1,28 @@
 <div class="upload-container">
   <mat-card class="upload-card">
     <mat-card-header>
-      <mat-card-title>
-        <mat-icon>security</mat-icon>
-        CVE 安全掃描工具
-      </mat-card-title>
-      <mat-card-subtitle>上傳您的 package.json 或 package-lock.json 檔案進行安全漏洞掃描</mat-card-subtitle>
+      <div class="header-content">
+        <div class="title-section">
+          <mat-card-title>
+            <mat-icon>security</mat-icon>
+            CVE 安全掃描工具
+          </mat-card-title>
+          <mat-card-subtitle>上傳您的 package.json 或 package-lock.json 檔案進行安全漏洞掃描</mat-card-subtitle>
+        </div>
+        <div class="header-actions">
+          <button mat-icon-button 
+                  color="primary"
+                  routerLink="/background-tasks"
+                  matTooltip="查看背景任務"
+                  *ngIf="backgroundScanService.getTaskStats().active > 0 || backgroundScanService.getTaskStats().completed > 0">
+            <mat-icon matBadge="{{ backgroundScanService.getTaskStats().active }}" 
+                      [matBadgeHidden]="backgroundScanService.getTaskStats().active === 0"
+                      matBadgeColor="accent">
+              cloud_queue
+            </mat-icon>
+          </button>
+        </div>
+      </div>
     </mat-card-header>
 
     <mat-card-content>
@@ -173,32 +190,48 @@
 
             </div>
 
-            <div class="packages-table">
-              <table mat-table [dataSource]="packages" class="packages-table">
-                <ng-container matColumnDef="name">
-                  <th mat-header-cell *matHeaderCellDef>套件名稱</th>
-                  <td mat-cell *matCellDef="let package">{{ package.name }}</td>
-                </ng-container>
-
-                <ng-container matColumnDef="version">
-                  <th mat-header-cell *matHeaderCellDef>版本</th>
-                  <td mat-cell *matCellDef="let package">{{ package.version }}</td>
-                </ng-container>
-
-                <ng-container matColumnDef="type">
-                  <th mat-header-cell *matHeaderCellDef>類型</th>
-                  <td mat-cell *matCellDef="let package">
-                    <mat-chip [class]="'type-' + package.type">
-                      {{ package.type === 'dependency' ? '正式' : 
-                         package.type === 'devDependency' ? '開發' : '間接' }}
-                    </mat-chip>
-                  </td>
-                </ng-container>
-
-
-                <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-                <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
-              </table>
+            <!-- 套件清單折疊面板 -->
+            <div class="packages-list-section">
+              <mat-expansion-panel [expanded]="showPackagesList" (expandedChange)="showPackagesList = $event">
+                <mat-expansion-panel-header>
+                  <mat-panel-title>
+                    <mat-icon>list_alt</mat-icon>
+                    套件詳細清單
+                  </mat-panel-title>
+                  <mat-panel-description>
+                    {{ showPackagesList ? '隱藏' : '顯示' }} {{ packages.length }} 個套件的詳細資訊
+                  </mat-panel-description>
+                </mat-expansion-panel-header>
+                
+                <!-- 虛擬滾動套件表格 -->
+                <div class="virtual-scroll-container">
+                  <cdk-virtual-scroll-viewport itemSize="48" minBufferPx="200" maxBufferPx="400" class="packages-viewport">
+                    <div class="packages-table-header">
+                      <div class="header-row">
+                        <div class="header-cell name-column">套件名稱</div>
+                        <div class="header-cell version-column">版本</div>
+                        <div class="header-cell type-column">類型</div>
+                      </div>
+                    </div>
+                    
+                    <div *cdkVirtualFor="let package of packages; trackBy: trackByPackageName" 
+                         class="package-row">
+                      <div class="package-cell name-column" [matTooltip]="package.name">
+                        {{ package.name }}
+                      </div>
+                      <div class="package-cell version-column">
+                        {{ package.version }}
+                      </div>
+                      <div class="package-cell type-column">
+                        <mat-chip [class]="'type-' + package.type" class="package-type-chip">
+                          {{ package.type === 'dependency' ? '正式' : 
+                             package.type === 'devDependency' ? '開發' : '間接' }}
+                        </mat-chip>
+                      </div>
+                    </div>
+                  </cdk-virtual-scroll-viewport>
+                </div>
+              </mat-expansion-panel>
             </div>
 
             <div class="step-actions">

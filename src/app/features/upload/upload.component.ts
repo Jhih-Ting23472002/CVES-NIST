@@ -1,7 +1,7 @@
 import { Component, OnInit, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterModule } from '@angular/router';
 import { MatStepperModule } from '@angular/material/stepper';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -13,9 +13,12 @@ import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatRadioModule } from '@angular/material/radio';
 import { MatExpansionModule } from '@angular/material/expansion';
+import { MatBadgeModule } from '@angular/material/badge';
 import { FormsModule } from '@angular/forms';
+import { ScrollingModule } from '@angular/cdk/scrolling';
 
 import { FileParserService } from '../../core/services/file-parser.service';
+import { BackgroundScanService } from '../../core/services/background-scan.service';
 import { PackageInfo, ValidationResult, ScanConfig, DEFAULT_SCAN_CONFIGS } from '../../core/models/vulnerability.model';
 
 @Component({
@@ -25,6 +28,7 @@ import { PackageInfo, ValidationResult, ScanConfig, DEFAULT_SCAN_CONFIGS } from 
     CommonModule,
     ReactiveFormsModule,
     FormsModule,
+    RouterModule,
     MatStepperModule,
     MatButtonModule,
     MatCardModule,
@@ -35,7 +39,9 @@ import { PackageInfo, ValidationResult, ScanConfig, DEFAULT_SCAN_CONFIGS } from 
     MatTableModule,
     MatTooltipModule,
     MatRadioModule,
-    MatExpansionModule
+    MatExpansionModule,
+    MatBadgeModule,
+    ScrollingModule
   ],
   templateUrl: './upload.component.html',
   styleUrls: ['./upload.component.scss']
@@ -57,6 +63,8 @@ export class UploadComponent implements OnInit {
   currentScanConfig: ScanConfig = DEFAULT_SCAN_CONFIGS['balanced'];
   estimatedScanTime: { estimatedMinutes: number; description: string } | null = null;
   
+  // UI 狀態控制
+  showPackagesList = false; // 預設不展開套件清單
   displayedColumns = ['name', 'version', 'type'];
 
   // 掃描模式選項
@@ -88,7 +96,8 @@ export class UploadComponent implements OnInit {
     private fb: FormBuilder,
     private router: Router,
     private snackBar: MatSnackBar,
-    private fileParserService: FileParserService
+    private fileParserService: FileParserService,
+    public backgroundScanService: BackgroundScanService
   ) {
     this.fileSelectionForm = this.fb.group({
       file: ['', Validators.required]
@@ -356,6 +365,11 @@ export class UploadComponent implements OnInit {
     } else {
       return `將掃描 ${current} 個套件 (已過濾 ${filtered} 個)`;
     }
+  }
+
+  // 虛擬滾動 trackBy 函數，提升性能
+  trackByPackageName(_index: number, item: PackageInfo): string {
+    return item.name;
   }
 
 }

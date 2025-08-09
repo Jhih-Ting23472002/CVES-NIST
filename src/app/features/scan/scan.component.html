@@ -11,19 +11,103 @@
     </mat-card-header>
     
     <mat-card-content>
-      <div class="progress-section" *ngIf="isScanning">
-        <div class="progress-info">
-          <p>{{ scanProgress.currentPackage }}</p>
-          <p>進度: {{ scanProgress.current }} / {{ scanProgress.total }}</p>
+      <!-- 背景掃描設定區域 -->
+      <div class="scan-options" *ngIf="!currentTask && !isScanning && !scanCompleted">
+        <h3>掃描設定</h3>
+        
+        <div class="background-scan-option">
+          <mat-slide-toggle 
+            [(ngModel)]="useBackgroundScan"
+            [disabled]="isScanning">
+            背景掃描模式
+          </mat-slide-toggle>
+          <mat-icon 
+            matTooltip="背景掃描允許您在掃描進行時繼續使用其他功能，掃描完成時會收到通知"
+            class="info-icon">
+            info
+          </mat-icon>
         </div>
+        
+        <div class="scan-config" *ngIf="useBackgroundScan">
+          <p class="config-description">
+            掃描模式：{{ getScanConfigDescription() }}
+          </p>
+          <p class="time-estimate">
+            預估時間：約 {{ fileParserService.estimateScanTime(packages).estimatedMinutes }} 分鐘
+          </p>
+        </div>
+      </div>
+
+      <!-- 背景任務控制區域 -->
+      <div class="background-task-controls" *ngIf="currentTask">
+        <div class="task-info">
+          <h4>{{ currentTask.name }}</h4>
+          <p class="task-description">
+            創建於：{{ currentTask.createdAt | date:'short' }}
+            <span *ngIf="currentTask.startedAt"> | 開始於：{{ currentTask.startedAt | date:'short' }}</span>
+            <span *ngIf="currentTask.completedAt"> | 完成於：{{ currentTask.completedAt | date:'short' }}</span>
+          </p>
+          <p class="task-status" [class]="'status-' + currentTask.status">
+            狀態：{{ getTaskStatusText() }}
+          </p>
+        </div>
+
+        <div class="task-controls" *ngIf="['running', 'paused'].includes(currentTask.status)">
+          <button mat-button 
+                  color="warn"
+                  *ngIf="currentTask.status === 'running'"
+                  (click)="pauseBackgroundScan()">
+            <mat-icon>pause</mat-icon>
+            暫停
+          </button>
+          <button mat-button 
+                  color="primary"
+                  *ngIf="currentTask.status === 'paused'"
+                  (click)="resumeBackgroundScan()">
+            <mat-icon>play_arrow</mat-icon>
+            繼續
+          </button>
+          <button mat-button 
+                  color="warn"
+                  (click)="cancelBackgroundScan()">
+            <mat-icon>stop</mat-icon>
+            取消
+          </button>
+        </div>
+      </div>
+      <!-- 進度顯示區域（前景掃描或背景任務進度） -->
+      <div class="progress-section" *ngIf="isScanning || (currentTask && ['running', 'paused'].includes(currentTask.status))">
+        <div class="progress-info">
+          <p *ngIf="currentTask; else foregroundProgress">
+            {{ currentTask.progress.currentPackage }}
+          </p>
+          <ng-template #foregroundProgress>
+            <p>{{ scanProgress.currentPackage }}</p>
+          </ng-template>
+          
+          <p *ngIf="currentTask; else foregroundProgressCount">
+            進度: {{ currentTask.progress.current }} / {{ currentTask.progress.total }}
+          </p>
+          <ng-template #foregroundProgressCount>
+            <p>進度: {{ scanProgress.current }} / {{ scanProgress.total }}</p>
+          </ng-template>
+        </div>
+        
         <mat-progress-bar 
           mode="determinate" 
-          [value]="scanProgress.percentage">
+          [value]="getProgressPercentage()">
         </mat-progress-bar>
-        <p class="progress-text">{{ scanProgress.percentage.toFixed(1) }}% 完成</p>
+        
+        <p class="progress-text">{{ getProgressPercentage().toFixed(1) }}% 完成</p>
+        
+        <p class="progress-mode" *ngIf="currentTask">
+          <mat-icon class="background-icon">cloud</mat-icon>
+          背景掃描進行中 - 您可以繼續使用其他功能
+        </p>
       </div>
       
-      <div class="results-section" *ngIf="scanCompleted && scanResults.length > 0">
+      <!-- 結果顯示區域 -->
+      <div class="results-section" *ngIf="(scanCompleted && scanResults.length > 0) || (currentTask?.status === 'completed' && currentTask?.results)">
         <div class="results-summary">
           <h3>掃描結果摘要</h3>
           <div class="summary-stats">
@@ -78,7 +162,8 @@
         </div>
       </div>
       
-      <div class="no-vulnerabilities" *ngIf="scanCompleted && getVulnerablePackages().length === 0">
+      <!-- 無漏洞顯示 -->
+      <div class="no-vulnerabilities" *ngIf="(scanCompleted && getVulnerablePackages().length === 0) || (currentTask?.status === 'completed' && (!currentTask?.results || getVulnerablePackages().length === 0))">
         <mat-icon class="success-icon">verified</mat-icon>
         <h3>太好了！沒有發現已知漏洞</h3>
         <p>所有 {{ packages.length }} 個套件都沒有在 NIST CVE 資料庫中找到相關漏洞記錄。</p>
@@ -90,20 +175,33 @@
         <mat-icon>arrow_back</mat-icon>
         返回上傳
       </button>
+      
+      <!-- 開始掃描按鈕 -->
       <button mat-raised-button 
               color="primary" 
-              *ngIf="!isScanning && !scanCompleted" 
+              *ngIf="!currentTask && !isScanning && !scanCompleted" 
               (click)="startScan()"
               [disabled]="packages.length === 0">
-        <mat-icon>play_arrow</mat-icon>
-        開始掃描
+        <mat-icon>{{ useBackgroundScan ? 'cloud_queue' : 'play_arrow' }}</mat-icon>
+        {{ useBackgroundScan ? '開始背景掃描' : '開始掃描' }}
       </button>
+      
+      <!-- 檢視報告按鈕 -->
       <button mat-raised-button 
               color="accent" 
-              *ngIf="scanCompleted && getVulnerablePackages().length > 0" 
+              *ngIf="canViewReport()" 
               (click)="viewReport()">
         <mat-icon>assessment</mat-icon>
         檢視詳細報告
+      </button>
+      
+      <!-- 背景任務管理按鈕 -->
+      <button mat-button 
+              color="primary"
+              *ngIf="backgroundScanService.hasRunningTask() && !currentTask"
+              routerLink="/background-tasks">
+        <mat-icon>list_alt</mat-icon>
+        查看背景任務
       </button>
     </mat-card-actions>
   </mat-card>

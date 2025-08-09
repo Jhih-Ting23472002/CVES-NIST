@@ -117,7 +117,18 @@
 }
 
 .tab-content {
-  padding: 2rem 1rem;
+  padding: 1rem;
+  height: 700px; // 為虛擬滾動提供固定高度
+  
+  // 響應式調整
+  @media (max-width: 768px) {
+    height: 500px;
+    padding: 0.5rem;
+  }
+  
+  @media (min-width: 1200px) {
+    height: 750px;
+  }
 }
 
 .package-card {
@@ -290,6 +301,7 @@
   flex-wrap: wrap;
 }
 
+
 // 風險等級樣式
 .count-chip-critical {
   color: #c62828;
@@ -336,6 +348,291 @@
   color: #1565c0;
 }
 
+// 分組套件容器樣式
+.grouped-packages-container {
+  width: 100%;
+  height: 100%;
+}
+
+.packages-accordion {
+  .package-group-panel {
+    margin: 1rem 0;
+    border-radius: 8px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    border-left: 4px solid transparent;
+
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    // 根據風險等級設定邊框顏色
+    &.risk-critical {
+      border-left-color: #d32f2f;
+      background: linear-gradient(135deg, #ffffff, #ffebee);
+      
+      .mat-expansion-panel-header {
+        background: linear-gradient(135deg, #ffffff, #ffebee);
+      }
+    }
+
+    &.risk-high {
+      border-left-color: #f57c00;
+      background: linear-gradient(135deg, #ffffff, #fff3e0);
+      
+      .mat-expansion-panel-header {
+        background: linear-gradient(135deg, #ffffff, #fff3e0);
+      }
+    }
+
+    &.risk-medium {
+      border-left-color: #e65100;
+      background: linear-gradient(135deg, #ffffff, #fff3e0);
+      
+      .mat-expansion-panel-header {
+        background: linear-gradient(135deg, #ffffff, #fff3e0);
+      }
+    }
+
+    &.risk-low {
+      border-left-color: #388e3c;
+      background: linear-gradient(135deg, #ffffff, #e8f5e8);
+      
+      .mat-expansion-panel-header {
+        background: linear-gradient(135deg, #ffffff, #e8f5e8);
+      }
+    }
+
+    &.risk-safe {
+      border-left-color: #1976d2;
+      background: linear-gradient(135deg, #ffffff, #e3f2fd);
+      
+      .mat-expansion-panel-header {
+        background: linear-gradient(135deg, #ffffff, #e3f2fd);
+      }
+    }
+  }
+}
+
+.package-group-title {
+  width: 100%;
+}
+
+.package-header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.package-name-section {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex: 1;
+  min-width: 200px;
+}
+
+.package-name {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.risk-chip {
+  font-size: 0.8rem;
+  min-height: 24px;
+}
+
+.type-chip {
+  font-size: 0.75rem;
+  min-height: 22px;
+  background-color: #e0e0e0;
+  color: #666;
+}
+
+.package-stats {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.vulnerability-count {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  
+  &::before {
+    content: "⚠️";
+    font-size: 0.8rem;
+  }
+}
+
+.dependencies-count {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  
+  &::before {
+    content: "📦";
+    font-size: 0.8rem;
+  }
+}
+
+.package-group-content {
+  padding: 1.5rem;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #333;
+
+  mat-icon {
+    font-size: 1.2rem;
+    width: 1.2rem;
+    height: 1.2rem;
+    color: #666;
+  }
+}
+
+.main-package-section {
+  margin-bottom: 2rem;
+}
+
+.vulnerabilities-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+
+.dependencies-section {
+  border-top: 1px solid #e0e0e0;
+  padding-top: 1.5rem;
+}
+
+.dependencies-list {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+
+.dependency-card {
+  border-radius: 8px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border-left: 3px solid transparent;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.12);
+  }
+
+  // 相依套件的風險等級樣式（較淡）
+  &.risk-critical {
+    border-left-color: #d32f2f;
+    background: linear-gradient(135deg, #ffffff, #ffebee);
+  }
+
+  &.risk-high {
+    border-left-color: #f57c00;
+    background: linear-gradient(135deg, #ffffff, #fff3e0);
+  }
+
+  &.risk-medium {
+    border-left-color: #e65100;
+    background: linear-gradient(135deg, #ffffff, #fff3e0);
+  }
+
+  &.risk-low {
+    border-left-color: #388e3c;
+    background: linear-gradient(135deg, #ffffff, #e8f5e8);
+  }
+
+  &.risk-safe {
+    border-left-color: #4caf50;
+    background: linear-gradient(135deg, #ffffff, #f1f8e9);
+  }
+}
+
+.dependency-title {
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.nested-vulnerabilities {
+  margin-top: 1rem;
+  border-radius: 4px;
+
+  .mat-expansion-panel-header {
+    padding: 0 16px;
+    height: 40px;
+    font-size: 0.9rem;
+  }
+}
+
+.no-vulnerabilities {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background-color: #e8f5e8;
+  border-radius: 8px;
+  color: #2e7d32;
+
+  &.small {
+    padding: 12px;
+    font-size: 0.9rem;
+    
+    .safe-icon {
+      font-size: 1rem;
+      width: 1rem;
+      height: 1rem;
+    }
+    
+    p {
+      margin: 0;
+      font-size: 0.85rem;
+    }
+  }
+  
+  p {
+    margin: 0;
+  }
+}
+
+.safe-icon {
+  color: #4caf50;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  color: #757575;
+  gap: 16px;
+  
+  mat-icon {
+    font-size: 48px;
+    width: 48px;
+    height: 48px;
+    color: #9e9e9e;
+  }
+  
+  p {
+    margin: 0;
+    font-size: 16px;
+  }
+}
+
 // 響應式設計
 @media (max-width: 768px) {
   .report-container {
@@ -370,5 +667,310 @@
 
   .analysis-section {
     padding: 1rem;
+  }
+
+  // 分組套件響應式樣式
+  .package-header-content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .package-name-section {
+    min-width: unset;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .package-stats {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+  }
+
+  .package-group-content {
+    padding: 1rem;
+  }
+
+  .dependencies-list {
+    grid-template-columns: 1fr;
+  }
+
+  .dependency-card {
+    margin: 0.5rem 0;
+  }
+
+  .vulnerabilities-grid {
+    gap: 0.5rem;
+  }
+}
+
+// 版本推薦樣式
+.version-recommendation-section {
+  margin: 2rem 0;
+  border-top: 1px solid #e0e0e0;
+  padding-top: 1.5rem;
+}
+
+.loading-recommendation {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #666;
+  font-size: 0.9rem;
+  
+  .loading-spinner {
+    animation: spin 1s linear infinite;
+  }
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.recommendation-card {
+  margin: 1rem 0;
+  
+  // 有推薦版本 (需要升級)
+  &:has(.upgrade-icon) {
+    border: 2px solid #4caf50;
+    background: linear-gradient(135deg, #f1f8e9, #e8f5e8);
+  }
+  
+  // 目前版本安全
+  &:has(.safe-icon) {
+    border: 2px solid #1976d2;
+    background: linear-gradient(135deg, #f0f8ff, #e3f2fd);
+  }
+  
+  // 無資料狀態
+  &:has(.no-data-icon) {
+    border: 2px solid #ff9800;
+    background: linear-gradient(135deg, #fffbf0, #fff3e0);
+  }
+  
+  .recommendation-title {
+    color: #2e7d32;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    
+    .upgrade-icon {
+      color: #4caf50;
+    }
+    
+    .safe-icon {
+      color: #1976d2;
+    }
+    
+    .no-data-icon {
+      color: #ff9800;
+    }
+    
+    .info-icon {
+      color: #666;
+    }
+  }
+}
+
+.recommendation-details {
+  .recommendation-reason {
+    margin-bottom: 1rem;
+    padding: 1rem;
+    border-radius: 8px;
+    border-left: 4px solid #4caf50;
+    background: rgba(76, 175, 80, 0.1);
+    
+    // 安全狀態 (無需升級)
+    &.safe-reason {
+      background: rgba(25, 118, 210, 0.1);
+      border-left-color: #1976d2;
+      color: #1565c0;
+    }
+    
+    // 無資料狀態
+    &.no-data-reason {
+      background: rgba(255, 152, 0, 0.1);
+      border-left-color: #ff9800;
+      color: #f57c00;
+    }
+  }
+  
+  .security-improvement {
+    .improvement-stats {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      
+      .stat-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+        
+        .stat-label {
+          font-size: 0.8rem;
+          color: #666;
+        }
+        
+        .stat-value {
+          font-size: 1.5rem;
+          font-weight: bold;
+          
+          &.current {
+            color: #d32f2f;
+          }
+          
+          &.recommended {
+            color: #4caf50;
+          }
+        }
+      }
+      
+      .arrow-icon {
+        color: #4caf50;
+        font-size: 2rem;
+      }
+    }
+    
+    .severity-change {
+      padding: 0.5rem 1rem;
+      background: rgba(76, 175, 80, 0.2);
+      border-radius: 6px;
+      color: #2e7d32;
+    }
+  }
+}
+
+.recommendation-error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #d32f2f;
+  font-size: 0.9rem;
+  padding: 1rem;
+  background: #ffebee;
+  border-radius: 8px;
+  border-left: 4px solid #d32f2f;
+  
+  .error-icon {
+    color: #d32f2f;
+  }
+}
+
+// 更新策略樣式
+.update-strategy-patch {
+  background-color: #e8f5e8 !important;
+  color: #2e7d32 !important;
+}
+
+.update-strategy-minor {
+  background-color: #fff3e0 !important;
+  color: #ef6c00 !important;
+}
+
+.update-strategy-major {
+  background-color: #ffebee !important;
+  color: #d32f2f !important;
+}
+
+.update-strategy-none {
+  background-color: #f5f5f5 !important;
+  color: #666 !important;
+}
+
+.update-strategy-default {
+  background-color: #e3f2fd !important;
+  color: #1976d2 !important;
+}
+
+.update-strategy-unknown {
+  background-color: #fafafa !important;
+  color: #757575 !important;
+}
+
+// 無資料資訊樣式
+.no-data-info {
+  margin: 1rem 0;
+  padding: 1.5rem;
+  background: rgba(255, 152, 0, 0.05);
+  border: 1px solid rgba(255, 152, 0, 0.2);
+  border-radius: 12px;
+  
+  .no-data-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    
+    .info-icon {
+      color: #ff9800;
+      font-size: 1.5rem;
+    }
+    
+    .no-data-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #f57c00;
+    }
+  }
+  
+  .no-data-content {
+    .no-data-reason {
+      margin-bottom: 1rem;
+      padding: 0.75rem;
+      background: rgba(255, 152, 0, 0.1);
+      border-radius: 6px;
+      border-left: 3px solid #ff9800;
+      font-style: italic;
+      color: #e65100;
+    }
+    
+    .no-data-suggestions {
+      strong {
+        color: #f57c00;
+      }
+      
+      ul {
+        margin: 0.5rem 0 0 1rem;
+        
+        li {
+          margin-bottom: 0.3rem;
+          color: #666;
+          font-size: 0.9rem;
+        }
+      }
+    }
+  }
+}
+
+// 依賴套件迷你推薦樣式
+.dependency-recommendation {
+  .mini-recommendation {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    background: rgba(76, 175, 80, 0.1);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    
+    .upgrade-mini-icon {
+      color: #4caf50;
+      font-size: 1rem;
+    }
+    
+    .recommendation-text {
+      flex: 1;
+    }
+    
+    .mini-chip {
+      font-size: 0.7rem !important;
+      min-height: 20px !important;
+      line-height: 1.2 !important;
+    }
   }
 }

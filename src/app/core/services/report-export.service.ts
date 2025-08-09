@@ -64,17 +64,17 @@ export class ReportExportService {
 
     // CSV 標題列
     csvData.push([
-      'Package Name',
-      'Package Version',
-      'Package Type',
-      'CVE ID',
-      'Severity',
-      'CVSS Score',
-      'Description',
-      'Published Date',
-      'Last Modified',
-      'Fixed Version',
-      'References'
+      '套件名稱',
+      '套件版本',
+      '套件類型',
+      'CVE 編號',
+      '嚴重程度',
+      'CVSS 分數',
+      '漏洞描述',
+      '發布日期',
+      '最後修改',
+      '修復版本',
+      '參考資料'
     ].join(','));
 
     // 資料列
@@ -88,9 +88,9 @@ export class ReportExportService {
           this.escapeCsvField(packageInfo?.version || ''),
           this.escapeCsvField(packageInfo?.type || ''),
           '',
-          'SAFE',
+          '安全',
           '0',
-          'No known vulnerabilities found',
+          '未發現已知漏洞',
           '',
           '',
           '',
@@ -116,7 +116,11 @@ export class ReportExportService {
       }
     });
 
-    const blob = new Blob([csvData.join('\n')], {
+    // 添加 UTF-8 BOM 以確保正確的編碼顯示
+    const BOM = '\uFEFF';
+    const csvContent = BOM + csvData.join('\n');
+    
+    const blob = new Blob([csvContent], {
       type: 'text/csv;charset=utf-8'
     });
 
@@ -437,7 +441,11 @@ export class ReportExportService {
   }
 
   private escapeCsvField(field: string): string {
-    if (field.includes(',') || field.includes('"') || field.includes('\n')) {
+    if (!field) return '';
+    
+    // 檢查是否需要引號包裹
+    if (field.includes(',') || field.includes('"') || field.includes('\n') || field.includes('\r')) {
+      // 將引號轉義為雙引號，並用引號包裹整個欄位
       return `"${field.replace(/"/g, '""')}"`;
     }
     return field;
