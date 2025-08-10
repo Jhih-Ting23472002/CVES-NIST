@@ -839,12 +839,12 @@ export class NvdDatabaseService {
     const request = cveStore.openCursor();
     const years = new Set<number>();
     let processed = 0;
-    const MAX_RECORDS = 1000; // 限制處理記錄數避免性能問題
     
     request.onsuccess = (event) => {
       const cursor = (event.target as IDBRequest).result;
-      if (!cursor || processed >= MAX_RECORDS) {
+      if (!cursor) {
         const sortedYears = Array.from(years).sort((a, b) => b - a);
+        console.log(`完成年份查詢，處理了 ${processed} 筆記錄，找到 ${years.size} 個年份:`, sortedYears);
         resolve(sortedYears);
         return;
       }
@@ -861,6 +861,12 @@ export class NvdDatabaseService {
       }
       
       processed++;
+      
+      // 每處理 10000 筆記錄輸出一次進度
+      if (processed % 10000 === 0) {
+        console.log(`年份查詢進度: 已處理 ${processed} 筆記錄，目前找到 ${years.size} 個年份`);
+      }
+      
       cursor.continue();
     };
     
