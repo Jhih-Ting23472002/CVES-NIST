@@ -1,0 +1,1128 @@
+import { Injectable } from '@angular/core';
+import { Observable, BehaviorSubject, from } from 'rxjs';
+import { map, switchMap, catchError, tap } from 'rxjs/operators';
+import {
+  CveRecord,
+  CpeRecord,
+  MetadataRecord,
+  DatabaseVersion,
+  VulnerabilityQueryResult,
+  PackageVulnerabilityQuery,
+  BatchProcessProgress
+} from '../interfaces/nvd-database.interface';
+import { Vulnerability } from '../models/vulnerability.model';
+import { DatabaseWorkerService } from './database-worker.service';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class NvdDatabaseService {
+  private readonly DB_NAME = 'NvdLocalDatabase';
+  private readonly DB_VERSION = 1;
+  private readonly CVE_STORE = 'cve';
+  private readonly CPE_STORE = 'cpe';
+  private readonly METADATA_STORE = 'metadata';
+  
+  private db: IDBDatabase | null = null;
+  private readonly isReady$ = new BehaviorSubject<boolean>(false);
+  private readonly storeProgress$ = new BehaviorSubject<BatchProcessProgress | null>(null);
+
+  constructor(private workerService: DatabaseWorkerService) {
+    this.initDatabase();
+  }
+
+  /**
+   * 取得資料庫準備狀態
+   */
+  isReady(): Observable<boolean> {
+    return this.isReady$.asObservable();
+  }
+
+  /**
+   * 取得儲存進度
+   */
+  getStoreProgress(): Observable<BatchProcessProgress | null> {
+    return this.storeProgress$.asObservable();
+  }
+
+  /**
+   * 初始化 IndexedDB
+   */
+  private initDatabase(): void {
+    if (!('indexedDB' in window)) {
+      console.error('此瀏覽器不支援 IndexedDB');
+      this.isReady$.next(false);
+      return;
+    }
+
+    const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+
+    request.onerror = () => {
+      console.error('IndexedDB 開啟失敗:', request.error);
+      this.isReady$.next(false);
+    };
+
+    request.onsuccess = () => {
+      this.db = request.result;
+      
+      // 確保所有 store 都存在
+      if (this.validateStores(this.db)) {
+        this.isReady$.next(true);
+        console.log('IndexedDB 初始化成功');
+      } else {
+        console.error('資料庫 stores 驗證失敗');
+        this.isReady$.next(false);
+      }
+    };
+
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      this.createStores(db);
+    };
+  }
+
+  /**
+   * 驗證資料庫 stores 是否正確建立
+   */
+  private validateStores(db: IDBDatabase): boolean {
+    const requiredStores = [this.CVE_STORE, this.CPE_STORE, this.METADATA_STORE];
+    
+    for (const storeName of requiredStores) {
+      if (!db.objectStoreNames.contains(storeName)) {
+        console.error(`缺少必要的 store: ${storeName}`);
+        return false;
+      }
+    }
+    
+    return true;
+  }
+
+  /**
+   * 建立 IndexedDB stores
+   */
+  private createStores(db: IDBDatabase): void {
+    // CVE store
+    if (!db.objectStoreNames.contains(this.CVE_STORE)) {
+      const cveStore = db.createObjectStore(this.CVE_STORE, { keyPath: 'id' });
+      
+      // 建立索引以加速查詢
+      cveStore.createIndex('severity', 'severity');
+      cveStore.createIndex('cvssScore', 'cvssScore');
+      cveStore.createIndex('lastModified', 'lastModified'); // 關鍵索引用於版本管理
+      cveStore.createIndex('published', 'published');
+      cveStore.createIndex('affectedProducts', 'affectedProducts', { multiEntry: true });
+      cveStore.createIndex('keywordSearchText', 'keywordSearchText');
+      
+      // 新增版本管理索引
+      cveStore.createIndex('dataVersion', 'dataVersion'); // 資料版本標記
+      cveStore.createIndex('lastModified_dataVersion', ['lastModified', 'dataVersion']); // 複合索引
+      cveStore.createIndex('published_year', 'publishedYear'); // 發布年份索引
+      cveStore.createIndex('syncTimestamp', 'syncTimestamp'); // 同步時間戳索引
+    }
+
+    // CPE store
+    if (!db.objectStoreNames.contains(this.CPE_STORE)) {
+      const cpeStore = db.createObjectStore(this.CPE_STORE, { keyPath: 'cpeName' });
+      
+      // 建立索引
+      cpeStore.createIndex('vendor', 'vendor');
+      cpeStore.createIndex('product', 'product');
+      cpeStore.createIndex('mappedPackageNames', 'mappedPackageNames', { multiEntry: true });
+      cpeStore.createIndex('lastModified', 'lastModified'); // 版本管理索引
+      cpeStore.createIndex('dataVersion', 'dataVersion'); // 資料版本標記
+      cpeStore.createIndex('syncTimestamp', 'syncTimestamp'); // 同步時間戳索引
+    }
+
+    // 元資料 store
+    if (!db.objectStoreNames.contains(this.METADATA_STORE)) {
+      db.createObjectStore(this.METADATA_STORE, { keyPath: 'key' });
+    }
+  }
+
+  /**
+   * 批次儲存 CVE 記錄
+   */
+  storeCveRecords(records: CveRecord[]): Observable<BatchProcessProgress> {
+    return new Observable(observer => {
+      if (!this.db) {
+        observer.error(new Error('資料庫尚未準備好'));
+        return;
+      }
+
+      const transaction = this.db.transaction([this.CVE_STORE], 'readwrite');
+      const store = transaction.objectStore(this.CVE_STORE);
+      
+      let processed = 0;
+      const total = records.length;
+      const batchSize = 1000; // 每批處理 1000 筆記錄
+      let currentBatch = 0;
+
+      const processBatch = () => {
+        const start = currentBatch * batchSize;
+        const end = Math.min(start + batchSize, total);
+        const batch = records.slice(start, end);
+
+        const promises = batch.map(record => {
+          return new Promise<void>((resolve, reject) => {
+            const request = store.put(record);
+            request.onsuccess = () => {
+              processed++;
+              resolve();
+            };
+            request.onerror = () => reject(request.error);
+          });
+        });
+
+        Promise.all(promises)
+          .then(() => {
+            const progress: BatchProcessProgress = {
+              type: 'store',
+              processed: processed,
+              total: total,
+              percentage: (processed / total) * 100,
+              message: `已儲存 ${processed}/${total} 筆 CVE 記錄`,
+              startTime: new Date()
+            };
+
+            this.storeProgress$.next(progress);
+            observer.next(progress);
+
+            if (end < total) {
+              currentBatch++;
+              // 延遲一下以避免阻塞 UI
+              setTimeout(processBatch, 10);
+            } else {
+              observer.complete();
+            }
+          })
+          .catch(error => {
+            console.error('儲存 CVE 記錄時發生錯誤:', error);
+            observer.error(error);
+          });
+      };
+
+      processBatch();
+
+      transaction.onerror = () => {
+        observer.error(transaction.error);
+      };
+    });
+  }
+
+  /**
+   * 批次儲存 CPE 記錄
+   */
+  storeCpeRecords(records: CpeRecord[]): Observable<BatchProcessProgress> {
+    return new Observable(observer => {
+      if (!this.db) {
+        observer.error(new Error('資料庫尚未準備好'));
+        return;
+      }
+
+      const transaction = this.db.transaction([this.CPE_STORE], 'readwrite');
+      const store = transaction.objectStore(this.CPE_STORE);
+      
+      let processed = 0;
+      const total = records.length;
+      const batchSize = 1000;
+
+      const storePromises = records.map(record => {
+        return new Promise<void>((resolve, reject) => {
+          const request = store.put(record);
+          request.onsuccess = () => {
+            processed++;
+            
+            if (processed % 100 === 0) {
+              const progress: BatchProcessProgress = {
+                type: 'store',
+                processed: processed,
+                total: total,
+                percentage: (processed / total) * 100,
+                message: `已儲存 ${processed}/${total} 筆 CPE 記錄`,
+                startTime: new Date()
+              };
+              this.storeProgress$.next(progress);
+              observer.next(progress);
+            }
+            
+            resolve();
+          };
+          request.onerror = () => reject(request.error);
+        });
+      });
+
+      Promise.all(storePromises)
+        .then(() => {
+          const finalProgress: BatchProcessProgress = {
+            type: 'store',
+            processed: total,
+            total: total,
+            percentage: 100,
+            message: `所有 CPE 記錄儲存完成 (${total} 筆)`,
+            startTime: new Date()
+          };
+          this.storeProgress$.next(finalProgress);
+          observer.next(finalProgress);
+          observer.complete();
+        })
+        .catch(error => {
+          console.error('儲存 CPE 記錄時發生錯誤:', error);
+          observer.error(error);
+        });
+
+      transaction.onerror = () => {
+        observer.error(transaction.error);
+      };
+    });
+  }
+
+  /**
+   * 查詢套件漏洞
+   */
+  queryPackageVulnerabilities(query: PackageVulnerabilityQuery): Observable<VulnerabilityQueryResult[]> {
+    return new Observable(observer => {
+      if (!this.db) {
+        observer.error(new Error('資料庫尚未準備好'));
+        return;
+      }
+
+      const transaction = this.db.transaction([this.CVE_STORE, this.CPE_STORE], 'readonly');
+      const cveStore = transaction.objectStore(this.CVE_STORE);
+      const results: VulnerabilityQueryResult[] = [];
+
+      // 使用不同的查詢策略
+      switch (query.searchType) {
+        case 'exact':
+          this.performExactSearch(cveStore, query, results, observer);
+          break;
+        case 'fuzzy':
+          this.performFuzzySearch(cveStore, query, results, observer);
+          break;
+        case 'cpe':
+          this.performCpeSearch(transaction, query, results, observer);
+          break;
+        default:
+          this.performCombinedSearch(transaction, query, results, observer);
+      }
+
+      transaction.onerror = () => {
+        observer.error(transaction.error);
+      };
+    });
+  }
+
+  /**
+   * 精確搜尋
+   */
+  private performExactSearch(
+    store: IDBObjectStore,
+    query: PackageVulnerabilityQuery,
+    results: VulnerabilityQueryResult[],
+    observer: any
+  ): void {
+    const index = store.index('affectedProducts');
+    const request = index.getAll(query.packageName);
+
+    request.onsuccess = () => {
+      const records: CveRecord[] = request.result;
+      
+      for (const record of records) {
+        if (this.isVersionAffected(record, query.version)) {
+          results.push(this.transformCveToResult(record, 'exact_match'));
+        }
+      }
+
+      observer.next(results);
+      observer.complete();
+    };
+
+    request.onerror = () => {
+      observer.error(request.error);
+    };
+  }
+
+  /**
+   * 模糊搜尋
+   */
+  private performFuzzySearch(
+    store: IDBObjectStore,
+    query: PackageVulnerabilityQuery,
+    results: VulnerabilityQueryResult[],
+    observer: any
+  ): void {
+    const index = store.index('keywordSearchText');
+    const request = index.openCursor();
+
+    request.onsuccess = (event) => {
+      const cursor = (event.target as IDBRequest).result;
+      if (!cursor) {
+        observer.next(results);
+        observer.complete();
+        return;
+      }
+
+      const record: CveRecord = cursor.value;
+      if (this.isKeywordMatch(record.keywordSearchText, query.packageName)) {
+        if (this.isVersionAffected(record, query.version)) {
+          results.push(this.transformCveToResult(record, 'keyword_match'));
+        }
+      }
+
+      cursor.continue();
+    };
+
+    request.onerror = () => {
+      observer.error(request.error);
+    };
+  }
+
+  /**
+   * CPE 搜尋
+   */
+  private performCpeSearch(
+    transaction: IDBTransaction,
+    query: PackageVulnerabilityQuery,
+    results: VulnerabilityQueryResult[],
+    observer: any
+  ): void {
+    const cpeStore = transaction.objectStore(this.CPE_STORE);
+    const cveStore = transaction.objectStore(this.CVE_STORE);
+    
+    // 先在 CPE store 中尋找對應的 CPE 名稱
+    const cpeIndex = cpeStore.index('mappedPackageNames');
+    const cpeRequest = cpeIndex.getAll(query.packageName);
+
+    cpeRequest.onsuccess = () => {
+      const cpeRecords: CpeRecord[] = cpeRequest.result;
+      
+      if (cpeRecords.length === 0) {
+        observer.next(results);
+        observer.complete();
+        return;
+      }
+
+      // 用找到的 CPE 名稱查詢 CVE
+      let processedCpes = 0;
+      const totalCpes = cpeRecords.length;
+
+      for (const cpeRecord of cpeRecords) {
+        const cveRequest = cveStore.openCursor();
+        
+        cveRequest.onsuccess = (event) => {
+          const cursor = (event.target as IDBRequest).result;
+          if (!cursor) {
+            processedCpes++;
+            if (processedCpes >= totalCpes) {
+              observer.next(results);
+              observer.complete();
+            }
+            return;
+          }
+
+          const cveRecord: CveRecord = cursor.value;
+          if (this.isCpeMatch(cveRecord, cpeRecord.cpeName) && 
+              this.isVersionAffected(cveRecord, query.version)) {
+            results.push(this.transformCveToResult(cveRecord, 'cpe_match'));
+          }
+
+          cursor.continue();
+        };
+      }
+    };
+
+    cpeRequest.onerror = () => {
+      observer.error(cpeRequest.error);
+    };
+  }
+
+  /**
+   * 組合搜尋（預設）
+   */
+  private performCombinedSearch(
+    transaction: IDBTransaction,
+    query: PackageVulnerabilityQuery,
+    results: VulnerabilityQueryResult[],
+    observer: any
+  ): void {
+    // 先嘗試精確搜尋，再進行模糊搜尋
+    const cveStore = transaction.objectStore(this.CVE_STORE);
+    
+    // Step 1: 精確匹配
+    const exactIndex = cveStore.index('affectedProducts');
+    const exactRequest = exactIndex.getAll(query.packageName);
+
+    exactRequest.onsuccess = () => {
+      const exactResults: CveRecord[] = exactRequest.result;
+      const exactCveIds = new Set<string>();
+
+      for (const record of exactResults) {
+        if (this.isVersionAffected(record, query.version)) {
+          results.push(this.transformCveToResult(record, 'exact_match'));
+          exactCveIds.add(record.id);
+        }
+      }
+
+      // Step 2: 模糊匹配（排除已找到的精確匹配）
+      const fuzzyIndex = cveStore.index('keywordSearchText');
+      const fuzzyRequest = fuzzyIndex.openCursor();
+
+      fuzzyRequest.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest).result;
+        if (!cursor) {
+          observer.next(results);
+          observer.complete();
+          return;
+        }
+
+        const record: CveRecord = cursor.value;
+        
+        // 避免重複
+        if (!exactCveIds.has(record.id) && 
+            this.isKeywordMatch(record.keywordSearchText, query.packageName) &&
+            this.isVersionAffected(record, query.version)) {
+          results.push(this.transformCveToResult(record, 'fuzzy_match'));
+        }
+
+        cursor.continue();
+      };
+    };
+  }
+
+  /**
+   * 檢查版本是否受影響
+   */
+  private isVersionAffected(cveRecord: CveRecord, version?: string): boolean {
+    if (!version) return true; // 沒有指定版本，回傳所有結果
+    
+    // 檢查 versionRanges
+    for (const range of cveRecord.versionRanges) {
+      if (this.versionInRange(version, range)) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * 檢查版本是否在指定範圍內
+   */
+  private versionInRange(version: string, range: any): boolean {
+    // 這裡應該使用 semver 來比較版本，簡化實作
+    try {
+      const versionParts = this.parseVersion(version);
+      
+      if (range.versionStartIncluding) {
+        const startParts = this.parseVersion(range.versionStartIncluding);
+        if (this.compareVersions(versionParts, startParts) < 0) return false;
+      }
+      
+      if (range.versionStartExcluding) {
+        const startParts = this.parseVersion(range.versionStartExcluding);
+        if (this.compareVersions(versionParts, startParts) <= 0) return false;
+      }
+      
+      if (range.versionEndIncluding) {
+        const endParts = this.parseVersion(range.versionEndIncluding);
+        if (this.compareVersions(versionParts, endParts) > 0) return false;
+      }
+      
+      if (range.versionEndExcluding) {
+        const endParts = this.parseVersion(range.versionEndExcluding);
+        if (this.compareVersions(versionParts, endParts) >= 0) return false;
+      }
+      
+      return true;
+    } catch (error) {
+      console.warn('版本比較失敗:', error);
+      return true; // 無法比較時預設為受影響
+    }
+  }
+
+  /**
+   * 解析版本號
+   */
+  private parseVersion(version: string): number[] {
+    return version.split(/[.-]/).map(part => {
+      const num = parseInt(part, 10);
+      return isNaN(num) ? 0 : num;
+    });
+  }
+
+  /**
+   * 比較版本號
+   */
+  private compareVersions(a: number[], b: number[]): number {
+    const maxLength = Math.max(a.length, b.length);
+    
+    for (let i = 0; i < maxLength; i++) {
+      const aPart = a[i] || 0;
+      const bPart = b[i] || 0;
+      
+      if (aPart !== bPart) {
+        return aPart - bPart;
+      }
+    }
+    
+    return 0;
+  }
+
+  /**
+   * 檢查關鍵字是否匹配
+   */
+  private isKeywordMatch(searchText: string, packageName: string): boolean {
+    const lowerSearchText = searchText.toLowerCase();
+    const lowerPackageName = packageName.toLowerCase();
+    
+    return lowerSearchText.includes(lowerPackageName) ||
+           lowerPackageName.includes(lowerSearchText) ||
+           this.fuzzyStringMatch(lowerSearchText, lowerPackageName);
+  }
+
+  /**
+   * 模糊字串匹配
+   */
+  private fuzzyStringMatch(text: string, pattern: string): boolean {
+    const words = pattern.split(/[-_\s]/);
+    return words.some(word => text.includes(word) && word.length > 2);
+  }
+
+  /**
+   * 檢查 CPE 是否匹配
+   */
+  private isCpeMatch(cveRecord: CveRecord, cpeName: string): boolean {
+    return cveRecord.versionRanges.some(range => range.cpeName === cpeName);
+  }
+
+  /**
+   * 轉換 CVE 記錄為查詢結果
+   */
+  private transformCveToResult(cveRecord: CveRecord, matchReason: string): VulnerabilityQueryResult {
+    const description = cveRecord.descriptions.find(d => d.lang === 'en')?.value ||
+                       cveRecord.descriptions[0]?.value ||
+                       'No description available';
+
+    return {
+      cveId: cveRecord.id,
+      severity: cveRecord.severity,
+      cvssScore: cveRecord.cvssScore,
+      description: description,
+      publishedDate: cveRecord.published,
+      lastModifiedDate: cveRecord.lastModified,
+      references: cveRecord.references.map(ref => ref.url),
+      affectedVersions: cveRecord.versionRanges.map(range => this.formatVersionRange(range)),
+      fixedVersion: this.extractFixedVersion(cveRecord.versionRanges),
+      matchReason: matchReason
+    };
+  }
+
+  /**
+   * 格式化版本範圍
+   */
+  private formatVersionRange(range: any): string {
+    const parts: string[] = [];
+    
+    if (range.versionStartIncluding) {
+      parts.push(`>= ${range.versionStartIncluding}`);
+    }
+    if (range.versionStartExcluding) {
+      parts.push(`> ${range.versionStartExcluding}`);
+    }
+    if (range.versionEndIncluding) {
+      parts.push(`<= ${range.versionEndIncluding}`);
+    }
+    if (range.versionEndExcluding) {
+      parts.push(`< ${range.versionEndExcluding}`);
+    }
+    
+    return parts.join(' && ') || 'all versions';
+  }
+
+  /**
+   * 提取修復版本
+   */
+  private extractFixedVersion(ranges: any[]): string | undefined {
+    for (const range of ranges) {
+      if (range.versionEndExcluding) {
+        return range.versionEndExcluding;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * 取得資料庫統計資訊
+   */
+  getDatabaseStats(): Observable<DatabaseVersion> {
+    return this.isReady().pipe(
+      switchMap(isReady => {
+        if (!isReady || !this.db) {
+          // 如果資料庫未準備好，回傳預設統計值
+          const defaultStats: DatabaseVersion = {
+            version: this.DB_VERSION,
+            lastSync: 'Never',
+            dataYears: [],
+            totalCveCount: 0,
+            totalCpeCount: 0
+          };
+          return [defaultStats];
+        }
+
+        return new Observable<DatabaseVersion>(observer => {
+          try {
+            const transaction = this.db!.transaction([this.CVE_STORE, this.CPE_STORE, this.METADATA_STORE], 'readonly');
+            
+            const cveCountRequest = transaction.objectStore(this.CVE_STORE).count();
+            const cpeCountRequest = transaction.objectStore(this.CPE_STORE).count();
+            const metadataRequest = transaction.objectStore(this.METADATA_STORE).get('database_info');
+
+            Promise.all([
+              new Promise<number>((resolve, reject) => { 
+                cveCountRequest.onsuccess = () => resolve(cveCountRequest.result);
+                cveCountRequest.onerror = () => reject(cveCountRequest.error);
+              }),
+              new Promise<number>((resolve, reject) => { 
+                cpeCountRequest.onsuccess = () => resolve(cpeCountRequest.result);
+                cpeCountRequest.onerror = () => reject(cpeCountRequest.error);
+              }),
+              new Promise<any>((resolve, reject) => { 
+                metadataRequest.onsuccess = () => resolve(metadataRequest.result);
+                metadataRequest.onerror = () => reject(metadataRequest.error);
+              })
+            ]).then(([cveCount, cpeCount, metadata]) => {
+              const stats: DatabaseVersion = {
+                version: this.DB_VERSION,
+                lastSync: metadata?.value?.lastSync || metadata?.lastSync || 'Never',
+                dataYears: metadata?.value?.dataYears || metadata?.dataYears || [],
+                totalCveCount: cveCount,
+                totalCpeCount: cpeCount
+              };
+              
+              observer.next(stats);
+              observer.complete();
+            }).catch(error => {
+              console.warn('取得統計資訊失敗，回傳預設值:', error);
+              // 即使出錯也回傳基本統計
+              observer.next({
+                version: this.DB_VERSION,
+                lastSync: 'Never',
+                dataYears: [],
+                totalCveCount: 0,
+                totalCpeCount: 0
+              });
+              observer.complete();
+            });
+
+            transaction.onerror = () => {
+              console.warn('Transaction 錯誤，回傳預設值:', transaction.error);
+              observer.next({
+                version: this.DB_VERSION,
+                lastSync: 'Never',
+                dataYears: [],
+                totalCveCount: 0,
+                totalCpeCount: 0
+              });
+              observer.complete();
+            };
+          } catch (error) {
+            console.warn('建立 transaction 失敗，回傳預設值:', error);
+            observer.next({
+              version: this.DB_VERSION,
+              lastSync: 'Never',
+              dataYears: [],
+              totalCveCount: 0,
+              totalCpeCount: 0
+            });
+            observer.complete();
+          }
+        });
+      })
+    );
+  }
+
+  /**
+   * 清除所有資料
+   */
+  clearAllData(): Observable<void> {
+    return new Observable(observer => {
+      if (!this.db) {
+        observer.error(new Error('資料庫尚未準備好'));
+        return;
+      }
+
+      const transaction = this.db.transaction([this.CVE_STORE, this.CPE_STORE, this.METADATA_STORE], 'readwrite');
+      
+      const cveRequest = transaction.objectStore(this.CVE_STORE).clear();
+      const cpeRequest = transaction.objectStore(this.CPE_STORE).clear();
+      const metadataRequest = transaction.objectStore(this.METADATA_STORE).clear();
+
+      transaction.oncomplete = () => {
+        console.log('所有資料已清除');
+        observer.next();
+        observer.complete();
+      };
+
+      transaction.onerror = () => {
+        observer.error(transaction.error);
+      };
+    });
+  }
+
+  /**
+   * 儲存元資料
+   */
+  storeMetadata(key: string, value: string): Observable<void> {
+    return new Observable(observer => {
+      if (!this.db) {
+        observer.error(new Error('資料庫尚未準備好'));
+        return;
+      }
+
+      const transaction = this.db.transaction([this.METADATA_STORE], 'readwrite');
+      const store = transaction.objectStore(this.METADATA_STORE);
+      
+      const record: MetadataRecord = {
+        key,
+        value,
+        updatedAt: new Date().toISOString()
+      };
+
+      const request = store.put(record);
+      
+      request.onsuccess = () => {
+        observer.next();
+        observer.complete();
+      };
+
+      request.onerror = () => {
+        observer.error(request.error);
+      };
+    });
+  }
+
+  /**
+   * 智慧資料更新 - 載入前先清理舊資料
+   */
+  smartDataUpdate(options: {
+    cveRecords: CveRecord[];
+    cpeRecords: CpeRecord[];
+    newVersion: string;
+    keepRecentDays?: number;
+  }): Observable<BatchProcessProgress> {
+    const { cveRecords, cpeRecords, newVersion, keepRecentDays = 7 } = options;
+
+    return new Observable(observer => {
+      // 檢查是否可用 Web Worker
+      if (this.workerService.isWorkerAvailable()) {
+        this.performWorkerBasedUpdate(options, observer);
+      } else {
+        this.performMainThreadUpdate(options, observer);
+      }
+    });
+  }
+
+  /**
+   * 使用 Web Worker 進行更新
+   */
+  private performWorkerBasedUpdate(
+    options: {
+      cveRecords: CveRecord[];
+      cpeRecords: CpeRecord[];
+      newVersion: string;
+      keepRecentDays?: number;
+    },
+    observer: any
+  ): void {
+    const { cveRecords, cpeRecords, newVersion, keepRecentDays = 7 } = options;
+
+    // 步驟 1: 準備資料庫（清理舊資料）
+    observer.next({
+      type: 'store',
+      processed: 0,
+      total: cveRecords.length + cpeRecords.length,
+      percentage: 0,
+      message: '正在準備資料庫...',
+      startTime: new Date()
+    });
+
+    this.workerService.prepareForNewData({
+      newDataVersion: newVersion,
+      keepRecentDays
+    }).subscribe({
+      next: (prepareResult) => {
+        if (prepareResult.phase === 'complete') {
+          // 步驟 2: 載入新資料
+          this.workerService.bulkInsert({
+            cveRecords: this.addVersionInfo(cveRecords, newVersion),
+            cpeRecords: this.addVersionInfoToCpe(cpeRecords, newVersion),
+            batchSize: 1000
+          }).subscribe({
+            next: (insertResult) => {
+              observer.next({
+                type: 'store',
+                processed: insertResult.cveInserted + insertResult.cpeInserted,
+                total: cveRecords.length + cpeRecords.length,
+                percentage: 100,
+                message: `資料載入完成：${insertResult.cveInserted} CVE + ${insertResult.cpeInserted} CPE`,
+                startTime: new Date()
+              });
+              observer.complete();
+            },
+            error: (error) => observer.error(error)
+          });
+        } else {
+          observer.next({
+            type: 'store',
+            processed: 0,
+            total: 1,
+            percentage: 50,
+            message: prepareResult.message,
+            startTime: new Date()
+          });
+        }
+      },
+      error: (error) => observer.error(error)
+    });
+
+    // 訂閱 Worker 進度
+    this.workerService.getProgress().subscribe(progress => {
+      if (progress) {
+        observer.next({
+          type: 'store',
+          processed: progress.processed || 0,
+          total: progress.total || 1,
+          percentage: progress.percentage || 0,
+          message: progress.message,
+          startTime: new Date()
+        });
+      }
+    });
+  }
+
+  /**
+   * 在主執行緒進行更新（回退方案）
+   */
+  private performMainThreadUpdate(
+    options: {
+      cveRecords: CveRecord[];
+      cpeRecords: CpeRecord[];
+      newVersion: string;
+      keepRecentDays?: number;
+    },
+    observer: any
+  ): void {
+    const { cveRecords, cpeRecords, newVersion, keepRecentDays = 7 } = options;
+
+    // 步驟 1: 清理過期資料
+    observer.next({
+      type: 'store',
+      processed: 0,
+      total: cveRecords.length + cpeRecords.length,
+      percentage: 0,
+      message: '正在清理過期資料...',
+      startTime: new Date()
+    });
+
+    this.cleanupOldDataMainThread(keepRecentDays).then(() => {
+      // 步驟 2: 儲存新資料
+      const cveWithVersion = this.addVersionInfo(cveRecords, newVersion);
+      const cpeWithVersion = this.addVersionInfoToCpe(cpeRecords, newVersion);
+
+      this.storeCveRecords(cveWithVersion).subscribe({
+        next: (progress) => {
+          observer.next(progress);
+        },
+        complete: () => {
+          this.storeCpeRecords(cpeWithVersion).subscribe({
+            next: (progress) => {
+              observer.next(progress);
+            },
+            complete: () => {
+              observer.complete();
+            },
+            error: (error) => observer.error(error)
+          });
+        },
+        error: (error) => observer.error(error)
+      });
+    }).catch(error => observer.error(error));
+  }
+
+  /**
+   * 為 CVE 記錄加入版本資訊
+   */
+  private addVersionInfo(records: CveRecord[], version: string): CveRecord[] {
+    const syncTimestamp = Date.now();
+    
+    return records.map(record => ({
+      ...record,
+      dataVersion: version,
+      publishedYear: new Date(record.published).getFullYear(),
+      syncTimestamp
+    }));
+  }
+
+  /**
+   * 為 CPE 記錄加入版本資訊
+   */
+  private addVersionInfoToCpe(records: CpeRecord[], version: string): CpeRecord[] {
+    const syncTimestamp = Date.now();
+    
+    return records.map(record => ({
+      ...record,
+      dataVersion: version,
+      syncTimestamp
+    }));
+  }
+
+  /**
+   * 主執行緒清理過期資料
+   */
+  private async cleanupOldDataMainThread(keepDays: number): Promise<void> {
+    if (!this.db) throw new Error('資料庫尚未準備好');
+
+    const cutoffTime = Date.now() - (keepDays * 24 * 60 * 60 * 1000);
+    const transaction = this.db.transaction([this.CVE_STORE, this.CPE_STORE], 'readwrite');
+
+    // 使用 Promise.all 並行清理
+    await Promise.all([
+      this.cleanupStoreByTimestamp(transaction.objectStore(this.CVE_STORE), cutoffTime),
+      this.cleanupStoreByTimestamp(transaction.objectStore(this.CPE_STORE), cutoffTime)
+    ]);
+  }
+
+  /**
+   * 按時間戳清理 store 資料
+   */
+  private cleanupStoreByTimestamp(store: IDBObjectStore, cutoffTime: number): Promise<number> {
+    return new Promise((resolve, reject) => {
+      let deletedCount = 0;
+      const index = store.index('syncTimestamp');
+      const range = IDBKeyRange.upperBound(cutoffTime);
+      const request = index.openCursor(range);
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest).result;
+        if (!cursor) {
+          resolve(deletedCount);
+          return;
+        }
+
+        cursor.delete();
+        deletedCount++;
+        cursor.continue();
+      };
+
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * 按版本清理資料
+   */
+  clearDataByVersion(version: string): Observable<{ deletedCount: number }> {
+    if (this.workerService.isWorkerAvailable()) {
+      return this.workerService.deleteByVersion(version);
+    } else {
+      return this.clearDataByVersionMainThread(version);
+    }
+  }
+
+  /**
+   * 主執行緒按版本清理資料
+   */
+  private clearDataByVersionMainThread(version: string): Observable<{ deletedCount: number }> {
+    return new Observable(observer => {
+      if (!this.db) {
+        observer.error(new Error('資料庫尚未準備好'));
+        return;
+      }
+
+      const transaction = this.db.transaction([this.CVE_STORE, this.CPE_STORE], 'readwrite');
+      let totalDeleted = 0;
+
+      const stores = [
+        { name: 'CVE', store: transaction.objectStore(this.CVE_STORE) },
+        { name: 'CPE', store: transaction.objectStore(this.CPE_STORE) }
+      ];
+
+      let completedStores = 0;
+
+      stores.forEach(({ name, store }) => {
+        const index = store.index('dataVersion');
+        const request = index.openCursor(IDBKeyRange.only(version));
+        let storeDeleted = 0;
+
+        request.onsuccess = (event) => {
+          const cursor = (event.target as IDBRequest).result;
+          if (!cursor) {
+            totalDeleted += storeDeleted;
+            completedStores++;
+            
+            if (completedStores === stores.length) {
+              observer.next({ deletedCount: totalDeleted });
+              observer.complete();
+            }
+            return;
+          }
+
+          cursor.delete();
+          storeDeleted++;
+          cursor.continue();
+        };
+
+        request.onerror = () => observer.error(request.error);
+      });
+    });
+  }
+
+  /**
+   * 取得版本資訊清單
+   */
+  getDataVersions(): Observable<{ version: string; count: number; syncTime: number }[]> {
+    return new Observable(observer => {
+      if (!this.db) {
+        observer.error(new Error('資料庫尚未準備好'));
+        return;
+      }
+
+      const transaction = this.db.transaction([this.CVE_STORE], 'readonly');
+      const store = transaction.objectStore(this.CVE_STORE);
+      const index = store.index('dataVersion');
+      const request = index.openCursor();
+
+      const versions = new Map<string, { count: number; syncTime: number }>();
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest).result;
+        if (!cursor) {
+          const result = Array.from(versions.entries()).map(([version, info]) => ({
+            version,
+            count: info.count,
+            syncTime: info.syncTime
+          }));
+          observer.next(result);
+          observer.complete();
+          return;
+        }
+
+        const record = cursor.value as CveRecord;
+        const existing = versions.get(record.dataVersion);
+        
+        if (existing) {
+          existing.count++;
+          existing.syncTime = Math.max(existing.syncTime, record.syncTimestamp);
+        } else {
+          versions.set(record.dataVersion, {
+            count: 1,
+            syncTime: record.syncTimestamp
+          });
+        }
+
+        cursor.continue();
+      };
+
+      request.onerror = () => observer.error(request.error);
+    });
+  }
+}

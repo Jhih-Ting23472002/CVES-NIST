@@ -12,6 +12,7 @@ import {
 } from '../interfaces/nist-api.interface';
 import { Vulnerability, PackageInfo } from '../models/vulnerability.model';
 import { CacheService } from './cache.service';
+import { LocalScanService } from './local-scan.service';
 
 @Injectable({
   providedIn: 'root'
@@ -29,7 +30,8 @@ export class NistApiService implements OnDestroy {
 
   constructor(
     private http: HttpClient,
-    private cacheService: CacheService
+    private cacheService: CacheService,
+    private localScanService: LocalScanService
   ) {
     // 每30秒清理一次過期請求記錄
     this.cleanupInterval = setInterval(() => {
@@ -38,9 +40,39 @@ export class NistApiService implements OnDestroy {
   }
 
   /**
-   * 搜尋特定套件的 CVE 漏洞
+   * 搜尋特定套件的 CVE 漏洞（自動選擇本地或 API 掃描）
    */
   searchVulnerabilities(packageName: string, version?: string): Observable<Vulnerability[]> {
+    console.log(`[NIST API] 開始掃描套件: ${packageName}@${version || '*'}`);
+    
+    // 優先使用本地資料庫掃描
+    return this.localScanService.isDatabaseReady().pipe(
+      switchMap(isLocalReady => {
+        console.log(`[NIST API] 本地資料庫可用性檢查結果: ${isLocalReady}`);
+        
+        if (isLocalReady) {
+          console.log(`[NIST API] ✅ 使用本地資料庫掃描 ${packageName}`);
+          return this.localScanService.scanPackage(packageName, version).pipe(
+            tap(results => {
+              console.log(`[NIST API] 本地掃描結果: 找到 ${results.length} 個漏洞`);
+            }),
+            catchError(localError => {
+              console.warn(`[NIST API] ⚠️ 本地掃描失敗，回退到 API 掃描:`, localError);
+              return this.performApiScan(packageName, version);
+            })
+          );
+        } else {
+          console.log(`[NIST API] ⚠️ 本地資料庫未就緒，使用 API 掃描 ${packageName}`);
+          return this.performApiScan(packageName, version);
+        }
+      })
+    );
+  }
+
+  /**
+   * 執行 API 掃描（原有邏輯）
+   */
+  private performApiScan(packageName: string, version?: string): Observable<Vulnerability[]> {
     // 檢查快取
     const cacheKey = CacheService.createVulnerabilityKey(packageName, version || '', true);
     const cachedResult = this.cacheService.get<Vulnerability[]>(cacheKey);
@@ -124,9 +156,37 @@ export class NistApiService implements OnDestroy {
   }
 
   /**
-   * 批次搜尋多個套件的漏洞，支援進度回報
+   * 批次搜尋多個套件的漏洞，支援進度回報（自動選擇本地或 API 掃描）
    */
   searchMultiplePackagesWithProgress(packages: PackageInfo[]): Observable<{
+    type: 'progress' | 'result' | 'error',
+    progress?: { current: number, total: number, currentPackage: string },
+    results?: {packageName: string, vulnerabilities: Vulnerability[]}[],
+    error?: string
+  }> {
+    // 檢查是否可以使用本地掃描
+    return this.localScanService.isDatabaseReady().pipe(
+      switchMap(isLocalReady => {
+        if (isLocalReady) {
+          console.log('使用本地資料庫批次掃描');
+          return this.localScanService.scanMultiplePackagesWithProgress(packages).pipe(
+            catchError(localError => {
+              console.warn('本地批次掃描失敗，回退到 API 掃描:', localError);
+              return this.performApiBatchScan(packages);
+            })
+          );
+        } else {
+          console.log('本地資料庫未就緒，使用 API 批次掃描');
+          return this.performApiBatchScan(packages);
+        }
+      })
+    );
+  }
+
+  /**
+   * 執行 API 批次掃描（原有邏輯）
+   */
+  private performApiBatchScan(packages: PackageInfo[]): Observable<{
     type: 'progress' | 'result' | 'error',
     progress?: { current: number, total: number, currentPackage: string },
     results?: {packageName: string, vulnerabilities: Vulnerability[]}[],
@@ -167,7 +227,7 @@ export class NistApiService implements OnDestroy {
 
         console.log(`正在掃描套件 ${index + 1}/${packages.length}: ${pkg.name}`);
 
-        this.searchVulnerabilities(pkg.name, pkg.version).subscribe({
+        this.performApiScan(pkg.name, pkg.version).subscribe({
           next: (vulnerabilities) => {
             results.push({
               packageName: pkg.packageKey || `${pkg.name}@${pkg.version}`,

@@ -7,9 +7,16 @@
             <mat-icon>security</mat-icon>
             CVE 安全掃描工具
           </mat-card-title>
-          <mat-card-subtitle>上傳您的 package.json 或 package-lock.json 檔案進行安全漏洞掃描</mat-card-subtitle>
+          <mat-card-subtitle>上傳 package.json 或 package-lock.json 進行快速本地安全掃描</mat-card-subtitle>
         </div>
         <div class="header-actions">
+          <button mat-stroked-button 
+                  color="primary"
+                  routerLink="/database"
+                  matTooltip="管理本地 NVD 資料庫">
+            <mat-icon>storage</mat-icon>
+            資料庫管理
+          </button>
           <button mat-icon-button 
                   color="primary"
                   routerLink="/background-tasks"
@@ -47,6 +54,20 @@
                 <mat-icon class="upload-icon">upload</mat-icon>
                 <h3>拖拽檔案至此或點擊選擇</h3>
                 <p>支援 package.json 或 package-lock.json 檔案</p>
+                <div class="feature-highlights">
+                  <div class="feature-item">
+                    <mat-icon>speed</mat-icon>
+                    <span>本地 NVD 資料庫快速掃描</span>
+                  </div>
+                  <div class="feature-item">
+                    <mat-icon>offline_bolt</mat-icon>
+                    <span>無網路依賴，離線可用</span>
+                  </div>
+                  <div class="feature-item">
+                    <mat-icon>security</mat-icon>
+                    <span>企業級安全掃描</span>
+                  </div>
+                </div>
                 <p class="file-size-hint">最大檔案大小: 10MB</p>
               </div>
             </div>

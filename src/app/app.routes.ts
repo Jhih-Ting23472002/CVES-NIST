@@ -18,5 +18,9 @@ export const routes: Routes = [
     path: 'background-tasks', 
     loadComponent: () => import('./features/background-tasks/background-tasks.component').then(m => m.BackgroundTasksComponent)
   },
+  { 
+    path: 'database', 
+    loadComponent: () => import('./features/database-management/database-management.component').then(m => m.DatabaseManagementComponent)
+  },
   { path: '**', redirectTo: '/upload' }
 ];

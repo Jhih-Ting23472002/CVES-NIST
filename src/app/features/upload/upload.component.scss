@@ -90,6 +90,37 @@
         color: #999;
       }
     }
+
+    .feature-highlights {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin: 1.5rem 0;
+
+      .feature-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: #1976d2;
+        font-size: 0.9rem;
+        
+        mat-icon {
+          font-size: 1.2rem;
+          width: 1.2rem;
+          height: 1.2rem;
+        }
+
+        span {
+          font-weight: 500;
+        }
+      }
+
+      @media (min-width: 768px) {
+        flex-direction: row;
+        justify-content: center;
+        gap: 1.5rem;
+      }
+    }
   }
 }
 
