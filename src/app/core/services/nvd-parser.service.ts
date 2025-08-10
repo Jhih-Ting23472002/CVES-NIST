@@ -465,10 +465,15 @@ export class NvdParserService {
       for (const node of nodes) {
         const matches = node.cpeMatch || [];
         for (const match of matches) {
-          if (match.vulnerable !== false) {
+          // 僅保留 vulnerable = true 的 CPE 記錄
+          if (match.vulnerable === true) {
+            const cpeObj = this.parseCpeName(match.criteria || match.cpe23Uri);
             versionRanges.push({
               cpeName: match.criteria || match.cpe23Uri,
-              vulnerable: match.vulnerable !== false,
+              vulnerable: true,
+              vendor: cpeObj.vendor || '',
+              product: cpeObj.product || '',
+              ecosystem: this.detectEcosystem(cpeObj),
               versionStartIncluding: match.versionStartIncluding,
               versionStartExcluding: match.versionStartExcluding,
               versionEndIncluding: match.versionEndIncluding,
@@ -627,6 +632,30 @@ export class NvdParserService {
     }
     
     return {};
+  }
+
+  /**
+   * 檢測套件生態系統
+   */
+  private detectEcosystem(cpeObj: any): string {
+    if (!cpeObj.vendor || !cpeObj.product) return 'unknown';
+    
+    const vendor = cpeObj.vendor.toLowerCase();
+    const product = cpeObj.product.toLowerCase();
+    
+    // Node.js / npm 生態系統
+    if (vendor === 'nodejs' || product.includes('node') || 
+        product.endsWith('_project') || product.endsWith('-js')) {
+      return 'npm';
+    }
+    
+    // 其他已知生態系統
+    if (vendor === 'python' || product.endsWith('-python')) return 'pypi';
+    if (vendor === 'ruby' || product.endsWith('-ruby')) return 'rubygems';
+    if (vendor === 'oracle' && product === 'mysql') return 'mysql';
+    if (vendor === 'postgresql') return 'postgresql';
+    
+    return 'unknown';
   }
 
   /**

@@ -16,6 +16,7 @@ import { Subscription } from 'rxjs';
 import { NistApiService } from '../../core/services/nist-api.service';
 import { BackgroundScanService } from '../../core/services/background-scan.service';
 import { FileParserService } from '../../core/services/file-parser.service';
+import { LocalScanService } from '../../core/services/local-scan.service';
 import { 
   PackageInfo, 
   Vulnerability, 
@@ -63,6 +64,10 @@ export class ScanComponent implements OnInit, OnDestroy {
   currentTask: ScanTask | null = null;
   scanConfig: ScanConfig = DEFAULT_SCAN_CONFIGS['balanced'];
   
+  // 本地掃描相關
+  useLocalScan = false;
+  isLocalDatabaseReady = false;
+  
   displayedColumns = ['package', 'vulnerabilities', 'highestSeverity'];
   private scanSubscription?: Subscription;
   private backgroundStateSubscription?: Subscription;
@@ -73,6 +78,7 @@ export class ScanComponent implements OnInit, OnDestroy {
     private nistApiService: NistApiService,
     public backgroundScanService: BackgroundScanService,
     public fileParserService: FileParserService,
+    private localScanService: LocalScanService,
     private snackBar: MatSnackBar,
     private dialog: MatDialog
   ) {
@@ -106,6 +112,9 @@ export class ScanComponent implements OnInit, OnDestroy {
       this.goBack();
       return;
     }
+
+    // 檢查本地資料庫狀態
+    this.checkLocalDatabaseStatus();
 
     // 訂閱背景掃描狀態
     this.backgroundStateSubscription = this.backgroundScanService.state$.subscribe(state => {
@@ -216,7 +225,7 @@ export class ScanComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * 開始前景掃描（原有邏輯）
+   * 開始前景掃描（支援本地掃描和 API 掃描）
    */
   startForegroundScan(): void {
     this.isScanning = true;
@@ -230,56 +239,114 @@ export class ScanComponent implements OnInit, OnDestroy {
       currentPackage: '準備開始掃描...'
     };
     
-    this.scanSubscription = this.nistApiService.searchMultiplePackagesWithProgress(this.packages).subscribe({
-      next: (response) => {
-        if (response.type === 'progress' && response.progress) {
-          this.scanProgress = {
-            current: response.progress.current + 1,
-            total: response.progress.total,
-            percentage: ((response.progress.current + 1) / response.progress.total) * 100,
-            currentPackage: response.progress.currentPackage.includes('等待') 
-              ? response.progress.currentPackage 
-              : `正在掃描: ${response.progress.currentPackage}`
-          };
-        } else if (response.type === 'result' && response.results) {
-          this.scanResults = response.results;
-          this.isScanning = false;
-          this.scanCompleted = true;
-          
-          const vulnerableCount = response.results.filter(r => r.vulnerabilities.length > 0).length;
-          const totalVulnerabilities = response.results.reduce((sum, r) => sum + r.vulnerabilities.length, 0);
-          const failedCount = response.results.filter(r => r.vulnerabilities.length === 0).length;
-          
-          let message = '';
-          if (totalVulnerabilities > 0) {
-            message = `掃描完成！在 ${vulnerableCount} 個套件中發現 ${totalVulnerabilities} 個漏洞`;
-            if (failedCount > 0) {
-              message += `，${failedCount} 個套件掃描失敗或無資料`;
-            }
-            this.snackBar.open(message, '確定', {
-              duration: 8000,
-              panelClass: ['warning-snackbar']
-            });
-          } else {
-            message = '掃描完成！沒有發現任何已知漏洞';
-            if (failedCount > 0) {
-              message += `（${failedCount} 個套件掃描失敗或無資料）`;
-            }
-            this.snackBar.open(message, '確定', {
-              duration: 5000,
-              panelClass: ['success-snackbar']
-            });
-          }
-        } else if (response.type === 'error' && response.error) {
-          console.warn('掃描過程中發生錯誤:', response.error);
+    // 根據設置選擇掃描方法
+    if (this.useLocalScan && this.isLocalDatabaseReady) {
+      this.scanSubscription = this.localScanService.scanMultiplePackagesWithProgress(this.packages).subscribe({
+        next: (response) => this.handleScanResponse(response),
+        error: (error) => this.handleScanError(error, '本地掃描失敗，將改為 API 掃描')
+      });
+    } else {
+      this.scanSubscription = this.nistApiService.searchMultiplePackagesWithProgress(this.packages).subscribe({
+        next: (response) => this.handleScanResponse(response),
+        error: (error) => this.handleScanError(error, 'API 掃描失敗')
+      });
+    }
+  }
+
+  /**
+   * 處理掃描響應（通用方法）
+   */
+  private handleScanResponse(response: any): void {
+    if (response.type === 'progress' && response.progress) {
+      this.scanProgress = {
+        current: response.progress.current + 1,
+        total: response.progress.total,
+        percentage: ((response.progress.current + 1) / response.progress.total) * 100,
+        currentPackage: response.progress.currentPackage.includes('等待') 
+          ? response.progress.currentPackage 
+          : `正在掃描: ${response.progress.currentPackage}`
+      };
+    } else if (response.type === 'result' && response.results) {
+      this.scanResults = response.results;
+      this.isScanning = false;
+      this.scanCompleted = true;
+      
+      const vulnerableCount = response.results.filter((r: any) => r.vulnerabilities.length > 0).length;
+      const totalVulnerabilities = response.results.reduce((sum: number, r: any) => sum + r.vulnerabilities.length, 0);
+      const failedCount = response.results.filter((r: any) => r.vulnerabilities.length === 0).length;
+      
+      let message = '';
+      const scanType = this.useLocalScan && this.isLocalDatabaseReady ? '本地掃描' : 'API 掃描';
+      if (totalVulnerabilities > 0) {
+        message = `${scanType}完成！在 ${vulnerableCount} 個套件中發現 ${totalVulnerabilities} 個漏洞`;
+        if (failedCount > 0) {
+          message += `，${failedCount} 個套件掃描失敗或無資料`;
+        }
+        this.snackBar.open(message, '確定', {
+          duration: 8000,
+          panelClass: ['warning-snackbar']
+        });
+      } else {
+        message = `${scanType}完成！沒有發現任何已知漏洞`;
+        if (failedCount > 0) {
+          message += `（${failedCount} 個套件掃描失敗或無資料）`;
+        }
+        this.snackBar.open(message, '確定', {
+          duration: 5000,
+          panelClass: ['success-snackbar']
+        });
+      }
+    } else if (response.type === 'error' && response.error) {
+      console.warn('掃描過程中發生錯誤:', response.error);
+    }
+  }
+
+  /**
+   * 處理掃描錯誤（通用方法）
+   */
+  private handleScanError(error: any, context: string): void {
+    this.isScanning = false;
+    console.error(`${context}:`, error);
+    
+    // 如果本地掃描失敗，自動切換到 API 掃描
+    if (context.includes('本地掃描失敗')) {
+      this.snackBar.open('本地掃描失敗，正在改為 API 掃描...', '確定', {
+        duration: 3000,
+        panelClass: ['info-snackbar']
+      });
+      // 重置狀態並使用 API 掃描
+      this.useLocalScan = false;
+      setTimeout(() => {
+        this.startForegroundScan();
+      }, 1000);
+    } else {
+      this.snackBar.open(`${context}: ${error.message}`, '確定', {
+        duration: 8000,
+        panelClass: ['error-snackbar']
+      });
+    }
+  }
+
+  /**
+   * 檢查本地資料庫狀態
+   */
+  private checkLocalDatabaseStatus(): void {
+    this.localScanService.isDatabaseReady().subscribe({
+      next: (isReady) => {
+        this.isLocalDatabaseReady = isReady;
+        if (isReady) {
+          // 預設使用本地掃描（如果可用）
+          this.useLocalScan = true;
+          console.log('本地資料庫可用，預設啟用本地掃描');
+        } else {
+          this.useLocalScan = false;
+          console.log('本地資料庫不可用，將使用 API 掃描');
         }
       },
       error: (error) => {
-        this.isScanning = false;
-        this.snackBar.open(`掃描失敗: ${error.message}`, '確定', {
-          duration: 8000,
-          panelClass: ['error-snackbar']
-        });
+        console.warn('檢查本地資料庫狀態失敗:', error);
+        this.isLocalDatabaseReady = false;
+        this.useLocalScan = false;
       }
     });
   }

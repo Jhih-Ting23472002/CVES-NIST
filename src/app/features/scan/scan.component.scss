@@ -14,7 +14,7 @@
 }
 
 
-.background-scan-option {
+.local-scan-option, .background-scan-option {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -23,6 +23,52 @@
   .info-icon {
     color: #666;
     cursor: help;
+  }
+}
+
+.local-scan-warning {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background-color: #fff3e0;
+  border: 1px solid #ffb74d;
+  border-radius: 4px;
+  color: #e65100;
+  font-size: 0.9rem;
+
+  .warning-icon {
+    color: #ff9800;
+  }
+
+  .database-link {
+    color: #1976d2;
+    text-decoration: none;
+    font-weight: 500;
+    margin-left: 0.5rem;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+.scan-type-badge {
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+
+  &.local {
+    background-color: #e8f5e8;
+    color: #2e7d32;
+  }
+
+  &.api {
+    background-color: #e3f2fd;
+    color: #1565c0;
   }
 }
 

@@ -276,7 +276,7 @@ export class LocalScanService {
   }
 
   /**
-   * 轉換查詢結果為內部格式
+   * 轉換查詢結果為內部格式（與 API 掃描保持一致）
    */
   private transformQueryResults(results: VulnerabilityQueryResult[]): Vulnerability[] {
     return results.map(result => ({
@@ -284,7 +284,7 @@ export class LocalScanService {
       description: result.description,
       severity: result.severity,
       cvssScore: result.cvssScore,
-      cvssVector: '', // 如果需要可以從資料庫取得
+      cvssVector: this.extractCvssVector(result), // 從資料庫提取 CVSS Vector
       publishedDate: result.publishedDate,
       lastModifiedDate: result.lastModifiedDate,
       references: result.references,
@@ -307,6 +307,14 @@ export class LocalScanService {
     };
     
     this.scanProgress$.next(progress);
+  }
+
+  /**
+   * 從查詢結果提取 CVSS Vector（如果有的話）
+   */
+  private extractCvssVector(result: VulnerabilityQueryResult): string {
+    // 現在 VulnerabilityQueryResult 已經包含 cvssVector 欄位
+    return result.cvssVector || '';
   }
 
   /**

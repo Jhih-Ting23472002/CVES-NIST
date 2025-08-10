@@ -595,24 +595,34 @@ export class NvdDatabaseService {
   }
 
   /**
-   * 轉換 CVE 記錄為查詢結果
+   * 轉換 CVE 記錄為查詢結果（與 API 掃描保持一致）
    */
   private transformCveToResult(cveRecord: CveRecord, matchReason: string): VulnerabilityQueryResult {
     const description = cveRecord.descriptions.find(d => d.lang === 'en')?.value ||
                        cveRecord.descriptions[0]?.value ||
                        'No description available';
 
+    // 提取 CVSS Vector
+    const cvssVector = this.extractCvssVectorFromMetrics(cveRecord.metrics);
+    
+    // 提取主要廠商和產品資訊
+    const primaryVersionRange = cveRecord.versionRanges.find(range => range.vulnerable) || cveRecord.versionRanges[0];
+
     return {
       cveId: cveRecord.id,
       severity: cveRecord.severity,
       cvssScore: cveRecord.cvssScore,
+      cvssVector: cvssVector,
       description: description,
       publishedDate: cveRecord.published,
       lastModifiedDate: cveRecord.lastModified,
       references: cveRecord.references.map(ref => ref.url),
       affectedVersions: cveRecord.versionRanges.map(range => this.formatVersionRange(range)),
       fixedVersion: this.extractFixedVersion(cveRecord.versionRanges),
-      matchReason: matchReason
+      matchReason: matchReason,
+      vendor: primaryVersionRange?.vendor,
+      product: primaryVersionRange?.product,
+      ecosystem: primaryVersionRange?.ecosystem
     };
   }
 
@@ -639,6 +649,30 @@ export class NvdDatabaseService {
   }
 
   /**
+   * 從 CVE metrics 中提取 CVSS Vector
+   */
+  private extractCvssVectorFromMetrics(metrics: any): string {
+    if (!metrics) return '';
+    
+    // 優先使用 CVSS v3.1
+    if (metrics.cvssMetricV31?.[0]?.cvssData?.vectorString) {
+      return metrics.cvssMetricV31[0].cvssData.vectorString;
+    }
+    
+    // 其次使用 CVSS v3.0
+    if (metrics.cvssMetricV30?.[0]?.cvssData?.vectorString) {
+      return metrics.cvssMetricV30[0].cvssData.vectorString;
+    }
+    
+    // 最後使用 CVSS v2（可能沒有 vectorString）
+    if (metrics.cvssMetricV2?.[0]?.cvssData?.vectorString) {
+      return metrics.cvssMetricV2[0].cvssData.vectorString;
+    }
+    
+    return '';
+  }
+
+  /**
    * 提取修復版本
    */
   private extractFixedVersion(ranges: any[]): string | undefined {
@@ -651,7 +685,7 @@ export class NvdDatabaseService {
   }
 
   /**
-   * 取得資料庫統計資訊
+   * 取得資料庫統計資訊（含動態年份查詢）
    */
   getDatabaseStats(): Observable<DatabaseVersion> {
     return this.isReady().pipe(
@@ -674,7 +708,10 @@ export class NvdDatabaseService {
             
             const cveCountRequest = transaction.objectStore(this.CVE_STORE).count();
             const cpeCountRequest = transaction.objectStore(this.CPE_STORE).count();
-            const metadataRequest = transaction.objectStore(this.METADATA_STORE).get('database_info');
+            const lastSyncRequest = transaction.objectStore(this.METADATA_STORE).get('last_sync');
+
+            // 動態查詢年份資料
+            const dataYearsPromise = this.queryDataYears(transaction);
 
             Promise.all([
               new Promise<number>((resolve, reject) => { 
@@ -686,14 +723,15 @@ export class NvdDatabaseService {
                 cpeCountRequest.onerror = () => reject(cpeCountRequest.error);
               }),
               new Promise<any>((resolve, reject) => { 
-                metadataRequest.onsuccess = () => resolve(metadataRequest.result);
-                metadataRequest.onerror = () => reject(metadataRequest.error);
-              })
-            ]).then(([cveCount, cpeCount, metadata]) => {
+                lastSyncRequest.onsuccess = () => resolve(lastSyncRequest.result);
+                lastSyncRequest.onerror = () => resolve(null); // 沒有資料時不算錯誤
+              }),
+              dataYearsPromise
+            ]).then(([cveCount, cpeCount, lastSyncRecord, dataYears]) => {
               const stats: DatabaseVersion = {
                 version: this.DB_VERSION,
-                lastSync: metadata?.value?.lastSync || metadata?.lastSync || 'Never',
-                dataYears: metadata?.value?.dataYears || metadata?.dataYears || [],
+                lastSync: lastSyncRecord?.value || 'Never',
+                dataYears: dataYears,
                 totalCveCount: cveCount,
                 totalCpeCount: cpeCount
               };
@@ -738,6 +776,110 @@ export class NvdDatabaseService {
         });
       })
     );
+  }
+
+  /**
+   * 動態查詢資料庫中存在的年份
+   */
+  private queryDataYears(transaction: IDBTransaction): Promise<number[]> {
+    return new Promise((resolve, reject) => {
+      try {
+        const cveStore = transaction.objectStore(this.CVE_STORE);
+        
+        // 檢查索引是否存在，優先使用 published_year 索引
+        let indexName: string;
+        if (cveStore.indexNames.contains('published_year')) {
+          indexName = 'published_year';
+        } else if (cveStore.indexNames.contains('publishedYear')) {
+          indexName = 'publishedYear';
+        } else {
+          // 沒有年份索引，使用 cursor 遍歷所有記錄
+          this.queryDataYearsFromRecords(cveStore, resolve);
+          return;
+        }
+        
+        const publishedYearIndex = cveStore.index(indexName);
+        const request = publishedYearIndex.openKeyCursor();
+        
+        const years = new Set<number>();
+        
+        request.onsuccess = (event) => {
+          const cursor = (event.target as IDBRequest).result;
+          if (!cursor) {
+            // 查詢完成，回傳排序後的年份陣列
+            const sortedYears = Array.from(years).sort((a, b) => b - a); // 由新到舊排序
+            resolve(sortedYears);
+            return;
+          }
+          
+          const year = cursor.key as number;
+          if (year && year > 0) {
+            years.add(year);
+          }
+          
+          cursor.continue();
+        };
+        
+        request.onerror = () => {
+          console.warn('索引查詢失敗，使用記錄遍歷方式:', request.error);
+          this.queryDataYearsFromRecords(cveStore, resolve);
+        };
+        
+      } catch (error) {
+        console.warn('查詢年份資料時發生錯誤，回傳預期年份:', error);
+        this.fallbackToExpectedYears(resolve);
+      }
+    });
+  }
+  
+  /**
+   * 從記錄中提取年份（無索引時的備用方案）
+   */
+  private queryDataYearsFromRecords(cveStore: IDBObjectStore, resolve: (years: number[]) => void): void {
+    const request = cveStore.openCursor();
+    const years = new Set<number>();
+    let processed = 0;
+    const MAX_RECORDS = 1000; // 限制處理記錄數避免性能問題
+    
+    request.onsuccess = (event) => {
+      const cursor = (event.target as IDBRequest).result;
+      if (!cursor || processed >= MAX_RECORDS) {
+        const sortedYears = Array.from(years).sort((a, b) => b - a);
+        resolve(sortedYears);
+        return;
+      }
+      
+      const record = cursor.value;
+      if (record.publishedYear && record.publishedYear > 0) {
+        years.add(record.publishedYear);
+      } else if (record.published) {
+        // 如果沒有 publishedYear 欄位，從 published 日期解析
+        const year = new Date(record.published).getFullYear();
+        if (year > 0) {
+          years.add(year);
+        }
+      }
+      
+      processed++;
+      cursor.continue();
+    };
+    
+    request.onerror = () => {
+      console.warn('記錄遍歷失敗:', request.error);
+      this.fallbackToExpectedYears(resolve);
+    };
+  }
+  
+  /**
+   * 回退到預期年份
+   */
+  private fallbackToExpectedYears(resolve: (years: number[]) => void): void {
+    const currentYear = new Date().getFullYear();
+    const expectedYears = [];
+    for (let i = 0; i < 4; i++) { // 近四年
+      expectedYears.push(currentYear - i);
+    }
+    resolve(expectedYears);
   }
 
   /**

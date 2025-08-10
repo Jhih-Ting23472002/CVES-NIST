@@ -47,7 +47,7 @@ import { DatabaseWorkerService } from '../../core/services/database-worker.servi
               <mat-icon>download</mat-icon>
               <div class="info-content">
                 <h4>初始同步</h4>
-                <p>首次使用需下載近三年 NVD 資料，建立本地漏洞資料庫</p>
+                <p>首次使用需下載近四年 NVD 資料，建立本地漏洞資料庫</p>
               </div>
             </div>
             <div class="info-item">

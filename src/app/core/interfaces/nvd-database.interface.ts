@@ -61,6 +61,9 @@ export interface CpeRecord {
 export interface VersionRange {
   cpeName: string;
   vulnerable: boolean;
+  vendor: string; // 從 CPE 解析的廠商名稱
+  product: string; // 從 CPE 解析的產品名稱
+  ecosystem: string; // 生態系統 (npm, pypi, etc.)
   versionStartIncluding?: string;
   versionStartExcluding?: string;
   versionEndIncluding?: string;
@@ -161,6 +164,7 @@ export interface VulnerabilityQueryResult {
   cveId: string;
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
   cvssScore: number;
+  cvssVector?: string; // CVSS 向量字串
   description: string;
   publishedDate: string;
   lastModifiedDate: string;
@@ -168,6 +172,9 @@ export interface VulnerabilityQueryResult {
   affectedVersions: string[];
   fixedVersion?: string;
   matchReason: string; // 說明為什麼匹配到這個 CVE
+  vendor?: string; // 廠商名稱
+  product?: string; // 產品名稱
+  ecosystem?: string; // 生態系統
 }
 
 // 批次處理進度

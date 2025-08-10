@@ -11,9 +11,30 @@
     </mat-card-header>
     
     <mat-card-content>
-      <!-- 背景掃描設定區域 -->
+      <!-- 掃描設定區域 -->
       <div class="scan-options" *ngIf="!currentTask && !isScanning && !scanCompleted">
         <h3>掃描設定</h3>
+        
+        <!-- 本地掃描選項 -->
+        <div class="local-scan-option" *ngIf="isLocalDatabaseReady">
+          <mat-slide-toggle 
+            [(ngModel)]="useLocalScan"
+            [disabled]="isScanning">
+            使用本地資料庫掃描
+          </mat-slide-toggle>
+          <mat-icon 
+            matTooltip="本地掃描速度更快且無需網路連接，但需要先同步 NVD 資料庫"
+            class="info-icon">
+            storage
+          </mat-icon>
+          <span class="scan-type-badge local" *ngIf="useLocalScan">本地掃描</span>
+        </div>
+        
+        <div class="local-scan-warning" *ngIf="!isLocalDatabaseReady">
+          <mat-icon class="warning-icon">warning</mat-icon>
+          <span>本地資料庫尚未準備就緒，將使用 API 掃描。</span>
+          <a routerLink="/database" class="database-link">前往資料庫管理</a>
+        </div>
         
         <div class="background-scan-option">
           <mat-slide-toggle 
@@ -26,6 +47,7 @@
             class="info-icon">
             info
           </mat-icon>
+          <span class="scan-type-badge api" *ngIf="!useLocalScan">API 掃描</span>
         </div>
         
         <div class="scan-config" *ngIf="useBackgroundScan">

@@ -15,7 +15,7 @@ import {
 export class NvdDownloadService {
   private readonly NVD_BASE_URL = 'https://nvd.nist.gov/feeds/json/cve/1.1';
   private readonly CURRENT_YEAR = new Date().getFullYear();
-  private readonly MIN_YEAR = this.CURRENT_YEAR - 2; // 近三年
+  private readonly MIN_YEAR = this.CURRENT_YEAR - 3; // 近四年
   
   private downloadProgress$ = new BehaviorSubject<BatchProcessProgress | null>(null);
   private downloadedData: Map<number, any> = new Map(); // 儲存下載的資料
@@ -30,7 +30,7 @@ export class NvdDownloadService {
   }
 
   /**
-   * 下載並解析近三年的 NVD 資料
+   * 下載並解析近四年的 NVD 資料
    */
   downloadRecentYearsData(): Observable<BatchProcessProgress> {
     const years = this.getRecentYears();
@@ -280,7 +280,7 @@ export class NvdDownloadService {
   }
 
   /**
-   * 取得近三年的年份清單
+   * 取得近四年的年份清單
    */
   private getRecentYears(): number[] {
     const years: number[] = [];

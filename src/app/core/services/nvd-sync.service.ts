@@ -52,7 +52,7 @@ export class NvdSyncService {
   }
 
   /**
-   * 執行初始資料同步（近三年完整資料）
+   * 執行初始資料同步（近四年完整資料）
    */
   performInitialSync(): Observable<SyncStatus> {
     return new Observable(observer => {
@@ -60,7 +60,7 @@ export class NvdSyncService {
         isRunning: true,
         currentPhase: 'download',
         progress: null,
-        message: '開始下載近三年 NVD 資料...'
+        message: '開始下載近四年 NVD 資料...'
       });
 
       const startTime = new Date();
