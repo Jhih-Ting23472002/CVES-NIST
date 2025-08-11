@@ -13,7 +13,7 @@ import {
   providedIn: 'root'
 })
 export class NvdDownloadService {
-  private readonly NVD_BASE_URL = 'https://nvd.nist.gov/feeds/json/cve/1.1';
+  private readonly NVD_BASE_URL = 'https://nvd.nist.gov/feeds/json/cve/2.0';
   private readonly CURRENT_YEAR = new Date().getFullYear();
   private readonly MIN_YEAR = this.CURRENT_YEAR - 3; // 近四年
   
@@ -98,10 +98,10 @@ export class NvdDownloadService {
   }
 
   /**
-   * 下載特定年份的 CVE 資料
+   * 下載特定年份的 CVE 資料 (使用 NVD 2.0 JSON 格式)
    */
   downloadYearData(year: number): Promise<any> {
-    const url = `${this.NVD_BASE_URL}/nvdcve-1.1-${year}.json.gz`;
+    const url = `${this.NVD_BASE_URL}/nvdcve-2.0-${year}.json.gz`;
     
     return new Promise((resolve, reject) => {
       // 使用原生 fetch 以支援串流處理
@@ -132,7 +132,7 @@ export class NvdDownloadService {
    * 下載增量更新資料（modified.json.gz）
    */
   downloadIncrementalUpdate(): Observable<IncrementalUpdate> {
-    const url = `${this.NVD_BASE_URL}/nvdcve-1.1-modified.json.gz`;
+    const url = `${this.NVD_BASE_URL}/nvdcve-2.0-modified.json.gz`;
     
     return new Observable(observer => {
       fetch(url)
@@ -173,7 +173,7 @@ export class NvdDownloadService {
    * 下載最近更新的 CVE（recent.json.gz）
    */
   downloadRecentUpdate(): Observable<any> {
-    const url = `${this.NVD_BASE_URL}/nvdcve-1.1-recent.json.gz`;
+    const url = `${this.NVD_BASE_URL}/nvdcve-2.0-recent.json.gz`;
     
     return new Observable(observer => {
       fetch(url)
@@ -202,7 +202,7 @@ export class NvdDownloadService {
    * 檢查 NVD 資料檔案的元資料
    */
   checkDataFileMetadata(year: number): Observable<any> {
-    const metaUrl = `${this.NVD_BASE_URL}/nvdcve-1.1-${year}.meta`;
+    const metaUrl = `${this.NVD_BASE_URL}/nvdcve-2.0-${year}.meta`;
     
     return this.http.get(metaUrl, { 
       responseType: 'text',
@@ -225,7 +225,7 @@ export class NvdDownloadService {
     const years = this.getRecentYears();
     return years.map(year => ({
       year,
-      url: `${this.NVD_BASE_URL}/nvdcve-1.1-${year}.json.gz`,
+      url: `${this.NVD_BASE_URL}/nvdcve-2.0-${year}.json.gz`,
       expectedSize: this.getExpectedFileSize(year),
       isIncremental: false
     }));
@@ -238,13 +238,13 @@ export class NvdDownloadService {
     return [
       {
         year: 0, // 特殊標記為增量檔案
-        url: `${this.NVD_BASE_URL}/nvdcve-1.1-modified.json.gz`,
+        url: `${this.NVD_BASE_URL}/nvdcve-2.0-modified.json.gz`,
         expectedSize: 50 * 1024 * 1024, // 預估 50MB
         isIncremental: true
       },
       {
         year: 0,
-        url: `${this.NVD_BASE_URL}/nvdcve-1.1-recent.json.gz`,
+        url: `${this.NVD_BASE_URL}/nvdcve-2.0-recent.json.gz`,
         expectedSize: 10 * 1024 * 1024, // 預估 10MB
         isIncremental: true
       }
@@ -256,7 +256,7 @@ export class NvdDownloadService {
    */
   checkForUpdates(): Observable<boolean> {
     // 檢查 modified.json.gz 的最後修改時間
-    const metaUrl = `${this.NVD_BASE_URL}/nvdcve-1.1-modified.meta`;
+    const metaUrl = `${this.NVD_BASE_URL}/nvdcve-2.0-modified.meta`;
     
     return this.http.get(metaUrl, { responseType: 'text' }).pipe(
       map(response => {
@@ -342,7 +342,7 @@ export class NvdDownloadService {
    * 測試網路連線和 NVD 服務可用性
    */
   testConnection(): Observable<boolean> {
-    const testUrl = `${this.NVD_BASE_URL}/nvdcve-1.1-${this.CURRENT_YEAR}.meta`;
+    const testUrl = `${this.NVD_BASE_URL}/nvdcve-2.0-${this.CURRENT_YEAR}.meta`;
     
     return this.http.head(testUrl).pipe(
       map(() => true),

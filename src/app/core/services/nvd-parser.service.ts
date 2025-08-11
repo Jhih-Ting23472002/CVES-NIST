@@ -216,8 +216,23 @@ export class NvdParserService {
   private transformCveItem(item: any, dataVersion?: string): CveRecord | null {
     try {
       // NVD 1.1 JSON Feed 格式：item 有 cve 屬性
-      // NVD API 2.0 格式：item 直接是 cve 物件
-      const cve = item.cve || item;
+      // NVD API 2.0 格式：item 有 cve 屬性，但結構不同
+      let cve: any;
+      let itemLevelData: any = {}; // 用於存放 1.1 格式中在 item 層級的資料
+      
+      if (item.cve) {
+        cve = item.cve;
+        // 在 1.1 格式中，一些資料（如 configurations, impact, publishedDate）在 item 層級
+        itemLevelData = {
+          configurations: item.configurations,
+          impact: item.impact,
+          publishedDate: item.publishedDate,
+          lastModifiedDate: item.lastModifiedDate
+        };
+      } else {
+        // 如果沒有 cve 屬性，假設整個 item 就是 cve 資料
+        cve = item;
+      }
       
       // 檢查必要欄位
       let cveId: string;
@@ -248,13 +263,23 @@ export class NvdParserService {
       }
       
       try {
-        metrics = this.extractMetrics(cve);
+        // 將 item 層級的 impact 資料合併到 cve 中（1.1 格式相容性）
+        const cveWithItemData = {
+          ...cve,
+          impact: itemLevelData.impact // 1.1 格式的 impact 在 item 層級
+        };
+        metrics = this.extractMetrics(cveWithItemData);
       } catch (error) {
         console.warn(`提取指標失敗 for ${cveId}:`, error);
       }
       
       try {
-        const configResult = this.extractConfigurations(cve);
+        // 將 item 層級的配置資料合併到 cve 中（1.1 格式相容性）
+        const cveWithItemData = {
+          ...cve,
+          configurations: cve.configurations || itemLevelData.configurations
+        };
+        const configResult = this.extractConfigurations(cveWithItemData);
         configurations = configResult.configurations;
         versionRanges = configResult.versionRanges;
       } catch (error) {
@@ -277,7 +302,7 @@ export class NvdParserService {
       const affectedProducts = this.extractAffectedProducts(versionRanges);
 
       // 取得發布日期（支援不同格式）
-      let publishedDate = cve.published || cve.publishedDate;
+      let publishedDate = cve.published || itemLevelData.publishedDate || cve.publishedDate;
       if (!publishedDate) {
         console.warn(`CVE ${cveId} 缺少發布日期，使用當前日期`);
         publishedDate = new Date().toISOString();
@@ -286,7 +311,7 @@ export class NvdParserService {
       return {
         id: cveId,
         published: publishedDate,
-        lastModified: cve.lastModified || cve.lastModifiedDate || new Date().toISOString(),
+        lastModified: cve.lastModified || itemLevelData.lastModifiedDate || cve.lastModifiedDate || new Date().toISOString(),
         descriptions: descriptions,
         metrics: metrics,
         configurations: configurations,
@@ -421,11 +446,15 @@ export class NvdParserService {
     const configurations: any[] = [];
     const versionRanges: VersionRange[] = [];
     
-    // API 2.0 格式
+    // API 2.0 格式 - 直接在 cve 底下
     if (Array.isArray(cve.configurations)) {
       configurations.push(...cve.configurations);
     }
-    // 1.1 Feed 格式 - problemtype 和 affects
+    // 1.1 Feed 格式 - 在 item 層級的 configurations
+    else if (cve.configurations?.nodes) {
+      configurations.push(cve.configurations);
+    }
+    // 1.1 Feed 格式 - 舊的 affects 格式
     else if (cve.affects?.vendor?.vendor_data) {
       // 處理 1.1 格式的 affects 資料
       const nodes: any[] = [];
@@ -461,8 +490,16 @@ export class NvdParserService {
 
     // 提取版本範圍
     for (const config of configurations) {
-      const nodes = config.nodes || [];
+      // NVD 2.0 格式：config 直接包含 nodes
+      let nodes = config.nodes || [];
+      
+      // 如果 config 本身就是一個 node（2.0 格式的扁平結構）
+      if (!nodes.length && config.cpeMatch) {
+        nodes = [config];
+      }
+      
       for (const node of nodes) {
+        // 處理 NVD 2.0 的 cpeMatch 結構
         const matches = node.cpeMatch || [];
         for (const match of matches) {
           // 僅保留 vulnerable = true 的 CPE 記錄
