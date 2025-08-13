@@ -4,6 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - 過程用zh-TW回答
 - 不知道的事情不要亂回答
+- 程式碼必須具備可維護跟擴充性
 
 ## 開發指令
 

@@ -407,44 +407,49 @@ export class NvdParserService {
    */
   private extractConfigurations(cve: any): { configurations: any[], versionRanges: VersionRange[] } {
     const configurations: any[] = [];
-    const versionRanges: VersionRange[] = [];
+    let versionRanges: VersionRange[] = [];
     
     // NVD 2.0 格式 - 直接在 cve.configurations 底下
     if (Array.isArray(cve.configurations)) {
       configurations.push(...cve.configurations);
-    }
-
-    // 提取版本範圍
-    for (const config of configurations) {
-      // NVD 2.0 格式：config 直接包含 nodes
-      let nodes = config.nodes || [];
       
-      // 如果 config 本身就是一個 node（2.0 格式的扁平結構）
-      if (!nodes.length && config.cpeMatch) {
-        nodes = [config];
-      }
-      
-      for (const node of nodes) {
-        // 處理 NVD 2.0 的 cpeMatch 結構
-        const matches = node.cpeMatch || [];
-        for (const match of matches) {
-          // 僅保留 vulnerable = true 的 CPE 記錄
-          if (match.vulnerable === true) {
-            const cpeObj = this.parseCpeName(match.criteria || match.cpe23Uri);
-            versionRanges.push({
-              cpeName: match.criteria || match.cpe23Uri,
-              vulnerable: true,
-              vendor: cpeObj.vendor || '',
-              product: cpeObj.product || '',
-              ecosystem: this.detectEcosystem(cpeObj),
-              versionStartIncluding: match.versionStartIncluding,
-              versionStartExcluding: match.versionStartExcluding,
-              versionEndIncluding: match.versionEndIncluding,
-              versionEndExcluding: match.versionEndExcluding
-            });
+      // 提取版本範圍
+      for (const config of configurations) {
+        // NVD 2.0 格式：config 直接包含 nodes
+        let nodes = config.nodes || [];
+        
+        // 如果 config 本身就是一個 node（2.0 格式的扁平結構）
+        if (!nodes.length && config.cpeMatch) {
+          nodes = [config];
+        }
+        
+        for (const node of nodes) {
+          // 處理 NVD 2.0 的 cpeMatch 結構
+          const matches = node.cpeMatch || [];
+          for (const match of matches) {
+            // 僅保留 vulnerable = true 的 CPE 記錄
+            if (match.vulnerable === true) {
+              const cpeObj = this.parseCpeName(match.criteria || match.cpe23Uri);
+              versionRanges.push({
+                cpeName: match.criteria || match.cpe23Uri,
+                vulnerable: true,
+                vendor: cpeObj.vendor || '',
+                product: cpeObj.product || '',
+                ecosystem: this.detectEcosystem(cpeObj),
+                versionStartIncluding: match.versionStartIncluding,
+                versionStartExcluding: match.versionStartExcluding,
+                versionEndIncluding: match.versionEndIncluding,
+                versionEndExcluding: match.versionEndExcluding
+              });
+            }
           }
         }
       }
+    }
+    
+    // 如果沒有 configurations，嘗試從描述中解析版本資訊
+    if (versionRanges.length === 0 && cve.descriptions) {
+      versionRanges = this.extractVersionRangesFromDescription(cve.descriptions, cve.id);
     }
     
     return { configurations, versionRanges };
@@ -528,12 +533,23 @@ export class NvdParserService {
     // 加入描述文本
     for (const desc of descriptions) {
       if (desc.value) {
-        parts.push(desc.value.toLowerCase());
+        const descText = desc.value.toLowerCase();
+        parts.push(descText);
+        
+        // 額外提取套件名稱（用於改進搜尋）
+        const packageNames = this.extractPackageNamesFromText(descText);
+        parts.push(...packageNames);
       }
     }
     
     // 加入產品名稱
     for (const range of versionRanges) {
+      if (range.product) {
+        parts.push(range.product);
+        // 加入常見的套件名稱變體
+        parts.push(range.product.replace('-', ''));
+        parts.push(range.product.replace('_', ''));
+      }
       if (range.cpeName) {
         const cpeObj = this.parseCpeName(range.cpeName);
         if (cpeObj.vendor) parts.push(cpeObj.vendor);
@@ -542,6 +558,32 @@ export class NvdParserService {
     }
     
     return parts.join(' ');
+  }
+
+  /**
+   * 從文本中提取可能的套件名稱
+   */
+  private extractPackageNamesFromText(text: string): string[] {
+    const packageNames: string[] = [];
+    
+    // 匹配常見的套件名稱模式
+    const patterns = [
+      /(?:vulnerability in|affects?|issue affects)\s+(\w[\w\-]*)/gi,
+      /(\w[\w\-]*)\s+(?:allows|enables|permits|causes)/gi,
+      /(?:package|module|library)\s+(\w[\w\-]*)/gi
+    ];
+    
+    for (const pattern of patterns) {
+      let match;
+      while ((match = pattern.exec(text)) !== null) {
+        const name = match[1].toLowerCase();
+        if (name.length > 2 && !['this', 'that', 'with', 'from', 'into', 'over'].includes(name)) {
+          packageNames.push(name);
+        }
+      }
+    }
+    
+    return packageNames;
   }
 
   /**
@@ -744,5 +786,159 @@ export class NvdParserService {
    */
   clearProgress(): void {
     this.parseProgress$.next(null);
+  }
+
+  /**
+   * 從描述中提取版本範圍資訊 (用於缺少 configurations 的情況)
+   */
+  private extractVersionRangesFromDescription(descriptions: any[], cveId: string): VersionRange[] {
+    const versionRanges: VersionRange[] = [];
+    
+    for (const desc of descriptions) {
+      if (!desc.value) continue;
+      
+      const text = desc.value.toLowerCase();
+      
+      // 提取套件名稱和版本範圍 
+      // 匹配模式：套件名 allows/affects 版本範圍，例如：
+      // "form-data allows HTTP Parameter Pollution (HPP). This issue affects form-data: < 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3."
+      const packageMatches = text.match(/(?:affects|issue affects)\s+([\w\-]+):\s*([^.\n]+(?:\.\d+(?:\s*-\s*\d+\.\d+)*[^.\n]*)*)/i);
+      
+      if (packageMatches) {
+        const packageName = packageMatches[1];
+        const versionText = packageMatches[2];
+        
+        console.log(`CVE ${cveId}: 從描述中找到套件 ${packageName}，版本範圍: ${versionText}`);
+        
+        // 解析版本範圍，如 "< 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3"
+        const ranges = this.parseVersionRangeText(versionText, packageName);
+        versionRanges.push(...ranges);
+      }
+      
+      // 另一種模式：直接在描述開頭提到套件和版本
+      // "Use of Insufficiently Random Values vulnerability in form-data"
+      const directMatches = text.match(/(?:vulnerability in|affects?)\s+(\w[\w\-]*)/i);
+      if (directMatches && !packageMatches) {
+        const packageName = directMatches[1];
+        
+        // 嘗試在文本中尋找版本資訊
+        const versionInfoMatch = text.match(/([<>=!]+\s*[\d\.]+[^\s,]*(?:\s*,\s*[<>=!]*\s*[\d\.]+[^\s,]*)*)/);
+        if (versionInfoMatch) {
+          console.log(`CVE ${cveId}: 從描述中找到套件 ${packageName}，版本範圍: ${versionInfoMatch[1]}`);
+          const ranges = this.parseVersionRangeText(versionInfoMatch[1], packageName);
+          versionRanges.push(...ranges);
+        } else {
+          // 沒有明確版本資訊，建立一個通用的 range
+          versionRanges.push({
+            cpeName: `cpe:2.3:a:*:${packageName}:*:*:*:*:*:*:*:*`,
+            vulnerable: true,
+            vendor: '',
+            product: packageName,
+            ecosystem: 'npm', // 預設為 npm，可根據套件名稱調整
+            versionStartIncluding: undefined,
+            versionStartExcluding: undefined,
+            versionEndIncluding: undefined,
+            versionEndExcluding: undefined
+          });
+        }
+      }
+    }
+    
+    return versionRanges;
+  }
+
+  /**
+   * 解析版本範圍文字，如 "< 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3"
+   */
+  private parseVersionRangeText(versionText: string, packageName: string): VersionRange[] {
+    const ranges: VersionRange[] = [];
+    
+    // 按逗號分割各個範圍
+    const rangeParts = versionText.split(',').map(part => part.trim());
+    
+    for (const part of rangeParts) {
+      let versionRange: VersionRange | null = null;
+      
+      // 處理範圍：如 "3.0.0 - 3.0.3"
+      const rangeMatch = part.match(/^([\d\.]+)\s*-\s*([\d\.]+)$/);
+      if (rangeMatch) {
+        versionRange = {
+          cpeName: `cpe:2.3:a:*:${packageName}:*:*:*:*:*:*:*:*`,
+          vulnerable: true,
+          vendor: '',
+          product: packageName,
+          ecosystem: this.guessEcosystem(packageName),
+          versionStartIncluding: rangeMatch[1],
+          versionStartExcluding: undefined,
+          versionEndIncluding: rangeMatch[2],
+          versionEndExcluding: undefined
+        };
+      }
+      // 處理小於：如 "< 2.5.4"
+      else if (part.match(/^\s*<\s*[\d\.]+/)) {
+        const versionMatch = part.match(/^\s*<\s*([\d\.]+)/);
+        if (versionMatch) {
+          versionRange = {
+            cpeName: `cpe:2.3:a:*:${packageName}:*:*:*:*:*:*:*:*`,
+            vulnerable: true,
+            vendor: '',
+            product: packageName,
+            ecosystem: this.guessEcosystem(packageName),
+            versionStartIncluding: undefined,
+            versionStartExcluding: undefined,
+            versionEndIncluding: undefined,
+            versionEndExcluding: versionMatch[1]
+          };
+        }
+      }
+      // 處理大於等於：如 ">= 1.0.0"
+      else if (part.match(/^\s*>=\s*[\d\.]+/)) {
+        const versionMatch = part.match(/^\s*>=\s*([\d\.]+)/);
+        if (versionMatch) {
+          versionRange = {
+            cpeName: `cpe:2.3:a:*:${packageName}:*:*:*:*:*:*:*:*`,
+            vulnerable: true,
+            vendor: '',
+            product: packageName,
+            ecosystem: this.guessEcosystem(packageName),
+            versionStartIncluding: versionMatch[1],
+            versionStartExcluding: undefined,
+            versionEndIncluding: undefined,
+            versionEndExcluding: undefined
+          };
+        }
+      }
+      
+      if (versionRange) {
+        ranges.push(versionRange);
+      }
+    }
+    
+    return ranges;
+  }
+
+  /**
+   * 根據套件名稱猜測生態系統
+   */
+  private guessEcosystem(packageName: string): string {
+    const name = packageName.toLowerCase();
+    
+    // Node.js/npm 套件的常見模式
+    if (name.includes('node') || name.includes('js') || name.includes('-') || 
+        ['form-data', 'express', 'lodash', 'react', 'vue', 'angular'].includes(name)) {
+      return 'npm';
+    }
+    
+    // Python 套件
+    if (name.includes('python') || name.includes('py') || name.includes('_')) {
+      return 'pypi';
+    }
+    
+    // Ruby 套件
+    if (name.includes('ruby') || name.includes('gem')) {
+      return 'rubygems';
+    }
+    
+    return 'npm'; // 預設為 npm
   }
 }
