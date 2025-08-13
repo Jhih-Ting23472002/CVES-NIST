@@ -44,6 +44,9 @@ export class BackgroundTasksComponent implements OnInit, OnDestroy {
   displayedActiveColumns = ['name', 'progress', 'status', 'actions'];
   displayedCompletedColumns = ['name', 'duration', 'status', 'results', 'actions'];
   
+  // 快取清理時間，避免變更檢測錯誤
+  nextCleanupTime: string = '';
+  
   private stateSubscription?: Subscription;
   private currentTaskSubscription?: Subscription;
 
@@ -63,6 +66,10 @@ export class BackgroundTasksComponent implements OnInit, OnDestroy {
     this.currentTaskSubscription = this.backgroundScanService.currentTask$.subscribe(
       task => this.currentTask = task
     );
+    
+    // 初始化清理時間並設定定期更新
+    this.updateNextCleanupTime();
+    setInterval(() => this.updateNextCleanupTime(), 60000); // 每分鐘更新一次
   }
 
   ngOnDestroy(): void {
@@ -265,11 +272,18 @@ export class BackgroundTasksComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * 取得下次自動清理時間
+   * 更新下次清理時間
+   */
+  private updateNextCleanupTime(): void {
+    const nextTime = this.backgroundScanService.getNextCleanupTime();
+    this.nextCleanupTime = nextTime.toLocaleString();
+  }
+
+  /**
+   * 取得下次自動清理時間 (返回快取值避免變更檢測錯誤)
    */
   getNextCleanupTime(): string {
-    const nextTime = this.backgroundScanService.getNextCleanupTime();
-    return nextTime.toLocaleString();
+    return this.nextCleanupTime;
   }
 
   /**

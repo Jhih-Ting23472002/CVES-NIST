@@ -8,12 +8,19 @@ import { MatTabsModule } from '@angular/material/tabs';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
+import { FormsModule } from '@angular/forms';
 import { BaseChartDirective } from 'ng2-charts';
 import { ChartConfiguration, ChartType } from 'chart.js';
 
 import { VirtualScrollVulnerabilitiesComponent } from '../../shared/components/virtual-scroll-vulnerabilities.component';
 import { VirtualScrollPackagesComponent } from '../../shared/components/virtual-scroll-packages.component';
 import { VulnerabilityDetailComponent } from '../../shared/components/vulnerability-detail.component';
+import { VulnerabilityTableComponent } from '../../shared/components/vulnerability-table.component';
+import { PackageTableComponent } from '../../shared/components/package-table.component';
 import { PackageInfo, Vulnerability } from '../../core/models/vulnerability.model';
 import { ReportExportService } from '../../core/services/report-export.service';
 import { VersionRecommendationService } from '../../core/services/version-recommendation.service';
@@ -30,10 +37,17 @@ import { VersionRecommendationService } from '../../core/services/version-recomm
     MatChipsModule,
     MatExpansionModule,
     MatTooltipModule,
+    MatProgressBarModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatSelectModule,
+    FormsModule,
     BaseChartDirective,
     VirtualScrollVulnerabilitiesComponent,
     VirtualScrollPackagesComponent,
-    VulnerabilityDetailComponent
+    VulnerabilityDetailComponent,
+    VulnerabilityTableComponent,
+    PackageTableComponent
   ],
   templateUrl: './report.component.html',
   styleUrls: ['./report.component.scss']
@@ -52,6 +66,8 @@ export class ReportComponent implements OnInit {
   loadingRecommendations: boolean = false;
   recommendationErrors: Map<string, string> = new Map();
   packageRecommendationStatus: Map<string, 'loading' | 'completed' | 'error'> = new Map();
+  
+  // 移除不需要的顯示模式和篩選功能
 
   // 圖表配置
   doughnutChartType: ChartType = 'doughnut';
@@ -111,8 +127,6 @@ export class ReportComponent implements OnInit {
     }
     
     this.setupChart();
-    this.groupScanResults();
-    this.loadVersionRecommendations();
   }
 
   private createDemoData(): void {
@@ -271,102 +285,11 @@ export class ReportComponent implements OnInit {
     this.router.navigate(['/scan']);
   }
 
-  trackByGroupFn(_: number, group: any): string {
-    return group.mainPackage.packageName;
-  }
+  // 移除不需要的 trackBy 函數
 
-  trackByDepFn(_: number, dep: any): string {
-    return dep.packageName;
-  }
+  // 移除版本推薦相關功能
 
-  /**
-   * 載入版本推薦
-   */
-  private loadVersionRecommendations(): void {
-    if (this.packages.length === 0) {
-      return;
-    }
-
-    this.loadingRecommendations = true;
-    console.log(`開始為 ${this.packages.length} 個套件載入版本推薦`);
-
-    // 為所有主要套件推薦版本（不只是有漏洞的）
-    const mainPackages = this.packages.filter(pkg => 
-      pkg.type === 'dependency' || pkg.type === 'devDependency'
-    );
-
-    if (mainPackages.length === 0) {
-      console.log('沒有主要套件需要推薦版本');
-      this.loadingRecommendations = false;
-      return;
-    }
-
-    console.log(`為 ${mainPackages.length} 個主要套件推薦版本`);
-
-    // 標記所有套件為載入中
-    mainPackages.forEach(pkg => {
-      this.packageRecommendationStatus.set(pkg.name, 'loading');
-    });
-
-    this.versionRecommendationService.recommendVersions(mainPackages)
-      .subscribe({
-        next: (recommendations) => {
-          console.log(`成功取得 ${recommendations.length} 個版本推薦`);
-          recommendations.forEach(rec => {
-            // 使用套件名稱作為 key，不是 currentVersion
-            this.versionRecommendations.set(rec.packageName, rec);
-            this.packageRecommendationStatus.set(rec.packageName, 'completed');
-          });
-          
-          // 標記沒有推薦結果的套件為錯誤
-          mainPackages.forEach(pkg => {
-            if (!this.versionRecommendations.has(pkg.name)) {
-              this.packageRecommendationStatus.set(pkg.name, 'error');
-              this.recommendationErrors.set(pkg.name, '無法取得版本推薦');
-            }
-          });
-          
-          this.loadingRecommendations = false;
-        },
-        error: (error) => {
-          console.error('載入版本推薦失敗:', error);
-          // 標記所有套件為錯誤
-          mainPackages.forEach(pkg => {
-            this.packageRecommendationStatus.set(pkg.name, 'error');
-            this.recommendationErrors.set(pkg.name, error.message || '版本推薦失敗');
-          });
-          this.loadingRecommendations = false;
-        }
-      });
-  }
-
-  /**
-   * 為單一套件載入版本推薦
-   */
-  loadRecommendationForPackage(packageInfo: PackageInfo): void {
-    const packageName = packageInfo.name;
-    
-    if (this.versionRecommendations.has(packageName) || this.recommendationErrors.has(packageName)) {
-      return; // 已經載入過或有錯誤
-    }
-
-    console.log(`載入 ${packageInfo.name} 的版本推薦`);
-    this.packageRecommendationStatus.set(packageName, 'loading');
-
-    this.versionRecommendationService.recommendVersion(packageInfo.name, packageInfo.version)
-      .subscribe({
-        next: (recommendation) => {
-          this.versionRecommendations.set(packageName, recommendation);
-          this.packageRecommendationStatus.set(packageName, 'completed');
-          console.log(`成功取得 ${packageInfo.name} 的版本推薦`);
-        },
-        error: (error) => {
-          console.error(`載入 ${packageInfo.name} 版本推薦失敗:`, error);
-          this.packageRecommendationStatus.set(packageName, 'error');
-          this.recommendationErrors.set(packageName, error.message || '版本推薦失敗');
-        }
-      });
-  }
+  // 移除單一套件版本推薦功能
 
   /**
    * 取得套件的版本推薦
@@ -431,6 +354,38 @@ export class ReportComponent implements OnInit {
   }
 
   /**
+   * 檢查是否正在載入版本推薦
+   */
+  isLoadingAnyRecommendations(): boolean {
+    return this.loadingRecommendations || 
+           Array.from(this.packageRecommendationStatus.values()).some(status => status === 'loading');
+  }
+
+  /**
+   * 檢查是否有任何版本推薦已載入
+   */
+  hasAnyRecommendations(): boolean {
+    return this.versionRecommendations.size > 0;
+  }
+
+  /**
+   * 取得已載入的推薦數量
+   */
+  getLoadedRecommendationsCount(): number {
+    return Array.from(this.packageRecommendationStatus.values())
+      .filter(status => status === 'completed').length;
+  }
+
+  /**
+   * 取得主要套件總數
+   */
+  getMainPackagesCount(): number {
+    return this.packages.filter(pkg => 
+      pkg.type === 'dependency' || pkg.type === 'devDependency'
+    ).length;
+  }
+
+  /**
    * 取得套件類型標籤
    */
   getPackageTypeLabel(type: 'dependency' | 'devDependency' | 'transitive'): string {
@@ -442,145 +397,54 @@ export class ReportComponent implements OnInit {
     }
   }
 
-  private groupScanResults(): void {
-    this.groupedScanResults = [];
-    
-    // 按套件名稱分組所有套件和掃描結果
-    const packagesByName = new Map<string, PackageInfo[]>();
-    const scanResultsByName = new Map<string, {packageName: string, vulnerabilities: Vulnerability[]}[]>();
-    
-    // 分組套件
-    this.packages.forEach(pkg => {
-      if (!packagesByName.has(pkg.name)) {
-        packagesByName.set(pkg.name, []);
-      }
-      packagesByName.get(pkg.name)!.push(pkg);
-    });
-    
-    // 分組掃描結果（按套件名稱和版本）
-    this.scanResults.forEach(result => {
-      const key = result.packageName;
-      if (!scanResultsByName.has(key)) {
-        scanResultsByName.set(key, []);
-      }
-      scanResultsByName.get(key)!.push(result);
-    });
-    
-    // 取得主套件（dependency 和 devDependency）
-    const mainPackageNames = new Set<string>();
-    this.packages.forEach(pkg => {
-      if (pkg.type === 'dependency' || pkg.type === 'devDependency') {
-        mainPackageNames.add(pkg.name);
-      }
-    });
-    
-    // 為每個主套件建立分組
-    mainPackageNames.forEach(packageName => {
-      const packageVersions = packagesByName.get(packageName) || [];
-      // 為這個套件名稱收集所有版本的掃描結果
-      const scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[] = [];
-      packageVersions.forEach(pkg => {
-        const pkgKey = pkg.packageKey || `${pkg.name}@${pkg.version}`;
-        const results = scanResultsByName.get(pkgKey) || [];
-        scanResults.push(...results);
-      });
-      
-      if (packageVersions.length > 0) {
-        // 找到優先級最高的套件版本作為主要顯示
-        const mainPackage = packageVersions.sort((a, b) => {
-          const typePriority = { 'dependency': 0, 'devDependency': 1, 'transitive': 2 };
-          return typePriority[a.type] - typePriority[b.type];
-        })[0];
-        
-        // 合併所有版本的漏洞
-        const allVulnerabilities = scanResults.reduce((acc, result) => {
-          return acc.concat(result.vulnerabilities);
-        }, [] as Vulnerability[]);
-        
-        // 去除重複的漏洞（同一 CVE ID）
-        const uniqueVulnerabilities = this.deduplicateVulnerabilities(allVulnerabilities);
-        
-        // 找到相關的間接相依套件
-        const transitivePackages = this.packages.filter(pkg => pkg.type === 'transitive');
-        const relatedDependencies = transitivePackages
-          .map(transPkg => {
-            const pkgKey = transPkg.packageKey || `${transPkg.name}@${transPkg.version}`;
-            const transScanResults = scanResultsByName.get(pkgKey) || [];
-            const transVulns = transScanResults.reduce((acc, result) => acc.concat(result.vulnerabilities), [] as Vulnerability[]);
-            return {
-              packageName: transPkg.name,
-              vulnerabilities: this.deduplicateVulnerabilities(transVulns),
-              packageInfo: transPkg
-            };
-          })
-          .filter(dep => dep.vulnerabilities.length > 0 || dep.packageInfo);
-        
-        this.groupedScanResults.push({
-          mainPackage: {
-            packageName: packageName,
-            vulnerabilities: uniqueVulnerabilities,
-            packageInfo: mainPackage
-          },
-          dependencies: relatedDependencies
-        });
-      }
-    });
-    
-    // 處理孤立的間接相依套件
-    const orphanTransitiveNames = new Set<string>();
-    this.packages.forEach(pkg => {
-      if (pkg.type === 'transitive' && !mainPackageNames.has(pkg.name)) {
-        orphanTransitiveNames.add(pkg.name);
-      }
-    });
-    
-    if (orphanTransitiveNames.size > 0) {
-      const orphanResults: {packageName: string, vulnerabilities: Vulnerability[], packageInfo: PackageInfo}[] = [];
-      
-      orphanTransitiveNames.forEach(packageName => {
-        const packageVersions = packagesByName.get(packageName) || [];
-        
-        // 為這個套件名稱收集所有版本的掃描結果
-        const allScanResults: {packageName: string, vulnerabilities: Vulnerability[]}[] = [];
-        packageVersions.forEach(pkg => {
-          const pkgKey = pkg.packageKey || `${pkg.name}@${pkg.version}`;
-          const results = scanResultsByName.get(pkgKey) || [];
-          allScanResults.push(...results);
-        });
-        
-        if (packageVersions.length > 0) {
-          const allVulns = allScanResults.reduce((acc, result) => acc.concat(result.vulnerabilities), [] as Vulnerability[]);
-          orphanResults.push({
-            packageName,
-            vulnerabilities: this.deduplicateVulnerabilities(allVulns),
-            packageInfo: packageVersions[0]
-          });
-        }
-      });
-      
-      if (orphanResults.length > 0) {
-        this.groupedScanResults.push({
-          mainPackage: {
-            packageName: '其他間接相依套件',
-            vulnerabilities: [],
-            packageInfo: undefined
-          },
-          dependencies: orphanResults
-        });
-      }
-    }
-  }
+  // 移除複雜的分組邏輯，改用簡單的表格顯示
   
-  // 去除重複的漏洞（基於 CVE ID）
-  private deduplicateVulnerabilities(vulnerabilities: Vulnerability[]): Vulnerability[] {
-    const seen = new Set<string>();
-    return vulnerabilities.filter(vuln => {
-      if (seen.has(vuln.cveId)) {
-        return false;
-      }
-      seen.add(vuln.cveId);
-      return true;
-    });
+  // 移除所有篩選相關方法
+  
+  // 移除不需要的切換方法
+
+  /**
+   * 取得套件的漏洞列表
+   */
+  getPackageVulnerabilities(pkg: PackageInfo): Vulnerability[] {
+    const packageKey = pkg.packageKey || `${pkg.name}@${pkg.version}`;
+    const result = this.scanResults.find(r => r.packageName === packageKey);
+    return result ? result.vulnerabilities : [];
+  }
+
+  /**
+   * 取得套件的特定嚴重程度漏洞數量
+   */
+  getPackageSeverityCount(pkg: PackageInfo, severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'): number {
+    const vulnerabilities = this.getPackageVulnerabilities(pkg);
+    return vulnerabilities.filter(v => v.severity === severity).length;
+  }
+
+  /**
+   * 取得有漏洞的套件數量
+   */
+  getVulnerablePackagesCount(): number {
+    return this.packages.filter(pkg => this.getPackageVulnerabilities(pkg).length > 0).length;
+  }
+
+  /**
+   * 取得套件風險圖示
+   */
+  getPackageRiskIcon(vulnerabilities: Vulnerability[]): string {
+    if (vulnerabilities.length === 0) return 'verified';
+    
+    const severities = vulnerabilities.map(v => v.severity);
+    if (severities.includes('CRITICAL')) return 'dangerous';
+    if (severities.includes('HIGH')) return 'warning';
+    if (severities.includes('MEDIUM')) return 'error_outline';
+    return 'info';
+  }
+
+  /**
+   * trackBy 函數用於 ngFor 優化
+   */
+  trackByPackage(index: number, pkg: PackageInfo): string {
+    return pkg.packageKey || `${pkg.name}@${pkg.version}`;
   }
   
 }

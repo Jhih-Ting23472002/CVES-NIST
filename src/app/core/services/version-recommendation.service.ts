@@ -109,7 +109,7 @@ export class VersionRecommendationService {
   }
 
   /**
-   * 批次推薦多個套件的版本 (序列化處理)
+   * 批次推薦多個套件的版本 (優化的異步處理)
    */
   recommendVersions(packages: PackageInfo[]): Observable<VersionRecommendation[]> {
     const results: VersionRecommendation[] = [];
@@ -128,13 +128,21 @@ export class VersionRecommendationService {
         this.recommendVersion(pkg.name, pkg.version).subscribe({
           next: (recommendation) => {
             results.push(recommendation);
-            // 延遲後處理下一個套件（每個推薦可能需要分析多個版本）
-            setTimeout(() => processPackage(index + 1), 5000);
+            // 縮短延遲時間並提供進度回饋
+            setTimeout(() => {
+              // 即時回傳進度
+              observer.next([...results]);
+              processPackage(index + 1);
+            }, 1000); // 從 5000ms 縮短到 1000ms
           },
           error: (error) => {
             console.error(`推薦 ${pkg.name} 版本失敗:`, error);
-            // 即使失敗也繼續處理下一個
-            setTimeout(() => processPackage(index + 1), 5000);
+            // 添加錯誤的推薦記錄
+            results.push(this.createNoDataRecommendation(pkg.name, pkg.version, error.message));
+            setTimeout(() => {
+              observer.next([...results]);
+              processPackage(index + 1);
+            }, 500); // 錯誤時更快處理下一個
           }
         });
       };
@@ -199,9 +207,9 @@ export class VersionRecommendationService {
       versionsToAnalyze.add(currentVersion);
     }
 
-    // 加入最新的3個穩定版本（排除預發布版本）- 減少分析數量
+    // 只加入最新的2個穩定版本（進一步減少分析數量以提升效能）
     const stableVersions = sortedVersions.filter(v => !this.isPrerelease(v));
-    stableVersions.slice(0, 3).forEach(v => versionsToAnalyze.add(v));
+    stableVersions.slice(0, 2).forEach(v => versionsToAnalyze.add(v));
 
     // 加入每個主要版本的最新版本
     const majorVersions = new Map<number, string>();
@@ -217,7 +225,7 @@ export class VersionRecommendationService {
   }
 
   /**
-   * 序列化處理版本分析以符合 API 限制
+   * 序列化處理版本分析以符合 API 限制 (優化延遲)
    */
   private processVersionsSequentially(
     packageName: string, 
@@ -240,13 +248,13 @@ export class VersionRecommendationService {
         this.analyzeVersion(packageName, version, npmInfo).subscribe({
           next: (analysis) => {
             results.push(analysis);
-            // 延遲後處理下一個版本（每個版本分析需要2個API請求，所以延遲12秒）
-            setTimeout(() => processVersion(index + 1), 12000);
+            // 縮短延遲時間，平衡API限制與用戶體驗
+            setTimeout(() => processVersion(index + 1), 3000); // 從 12000ms 縮短到 3000ms
           },
           error: (error) => {
             console.error(`分析版本 ${version} 失敗:`, error);
             // 即使失敗也繼續處理下一個版本
-            setTimeout(() => processVersion(index + 1), 12000);
+            setTimeout(() => processVersion(index + 1), 1500); // 錯誤時更快處理
           }
         });
       };

@@ -35,16 +35,16 @@ export class NvdParserService {
     return new Observable(observer => {
       const startTime = new Date();
       
-      // 解析 CVE 資料
-      if (jsonData.CVE_Items || jsonData.vulnerabilities) {
+      // 解析 CVE 資料 (NVD 2.0 格式)
+      if (jsonData.vulnerabilities) {
         this.parseCveData(jsonData, startTime, observer, dataVersion);
       }
-      // 解析 CPE 資料  
-      else if (jsonData.CPE_Items || jsonData.products) {
+      // 解析 CPE 資料 (NVD 2.0 格式)
+      else if (jsonData.products) {
         this.parseCpeData(jsonData, startTime, observer, dataVersion);
       }
       else {
-        observer.error(new Error('無法識別的 NVD 資料格式'));
+        observer.error(new Error('無法識別的 NVD 2.0 資料格式'));
       }
     });
   }
@@ -58,8 +58,8 @@ export class NvdParserService {
     observer: any,
     dataVersion?: string
   ): void {
-    // 支援新舊兩種 API 格式
-    const vulnerabilities = jsonData.vulnerabilities || jsonData.CVE_Items || [];
+    // NVD 2.0 格式
+    const vulnerabilities = jsonData.vulnerabilities || [];
     const total = vulnerabilities.length;
     let processed = 0;
     let batchIndex = 0;
@@ -141,7 +141,7 @@ export class NvdParserService {
     observer: any,
     dataVersion?: string
   ): void {
-    const products = jsonData.products || jsonData.CPE_Items || [];
+    const products = jsonData.products || [];
     const total = products.length;
     let processed = 0;
     let batchIndex = 0;
@@ -215,34 +215,17 @@ export class NvdParserService {
    */
   private transformCveItem(item: any, dataVersion?: string): CveRecord | null {
     try {
-      // NVD 1.1 JSON Feed 格式：item 有 cve 屬性
-      // NVD API 2.0 格式：item 有 cve 屬性，但結構不同
-      let cve: any;
-      let itemLevelData: any = {}; // 用於存放 1.1 格式中在 item 層級的資料
+      // NVD 2.0 格式：item.cve 包含所有 CVE 資料
+      const cve = item.cve;
       
-      if (item.cve) {
-        cve = item.cve;
-        // 在 1.1 格式中，一些資料（如 configurations, impact, publishedDate）在 item 層級
-        itemLevelData = {
-          configurations: item.configurations,
-          impact: item.impact,
-          publishedDate: item.publishedDate,
-          lastModifiedDate: item.lastModifiedDate
-        };
-      } else {
-        // 如果沒有 cve 屬性，假設整個 item 就是 cve 資料
-        cve = item;
+      if (!cve) {
+        console.warn('CVE 項目缺少 cve 屬性:', item);
+        return null;
       }
       
-      // 檢查必要欄位
-      let cveId: string;
-      if (cve.id) {
-        // API 2.0 格式
-        cveId = cve.id;
-      } else if (cve.CVE_data_meta?.ID) {
-        // 1.1 Feed 格式
-        cveId = cve.CVE_data_meta.ID;
-      } else {
+      // 檢查必要欄位 (NVD 2.0 格式)
+      const cveId = cve.id;
+      if (!cveId) {
         console.warn('CVE 項目缺少 ID 欄位:', cve);
         return null;
       }
@@ -263,23 +246,13 @@ export class NvdParserService {
       }
       
       try {
-        // 將 item 層級的 impact 資料合併到 cve 中（1.1 格式相容性）
-        const cveWithItemData = {
-          ...cve,
-          impact: itemLevelData.impact // 1.1 格式的 impact 在 item 層級
-        };
-        metrics = this.extractMetrics(cveWithItemData);
+        metrics = this.extractMetrics(cve);
       } catch (error) {
         console.warn(`提取指標失敗 for ${cveId}:`, error);
       }
       
       try {
-        // 將 item 層級的配置資料合併到 cve 中（1.1 格式相容性）
-        const cveWithItemData = {
-          ...cve,
-          configurations: cve.configurations || itemLevelData.configurations
-        };
-        const configResult = this.extractConfigurations(cveWithItemData);
+        const configResult = this.extractConfigurations(cve);
         configurations = configResult.configurations;
         versionRanges = configResult.versionRanges;
       } catch (error) {
@@ -298,11 +271,24 @@ export class NvdParserService {
       // 建構搜尋文本
       const keywordSearchText = this.buildKeywordSearchText(cveId, descriptions, versionRanges);
       
-      // 提取受影響產品
+      // 提取受影響產品和優化欄位
       const affectedProducts = this.extractAffectedProducts(versionRanges);
+      const vendorProducts = this.extractVendorProducts(versionRanges);
+      const ecosystems = this.extractEcosystems(versionRanges);
 
-      // 取得發布日期（支援不同格式）
-      let publishedDate = cve.published || itemLevelData.publishedDate || cve.publishedDate;
+      // 提取 NVD 2.0 特有欄位
+      const sourceIdentifier = cve.sourceIdentifier;
+      const vulnStatus = cve.vulnStatus;
+      const weaknesses = this.extractWeaknesses(cve);
+      const cveTags = Array.isArray(cve.cveTags) ? cve.cveTags : [];
+
+      // 效能優化欄位
+      const primaryCvssVector = this.extractPrimaryCvssVector(metrics);
+      const cpeMatchCount = this.calculateCpeMatchCount(configurations);
+      const referenceCount = references.length;
+
+      // 取得發布日期（NVD 2.0 格式）
+      let publishedDate = cve.published;
       if (!publishedDate) {
         console.warn(`CVE ${cveId} 缺少發布日期，使用當前日期`);
         publishedDate = new Date().toISOString();
@@ -311,7 +297,7 @@ export class NvdParserService {
       return {
         id: cveId,
         published: publishedDate,
-        lastModified: cve.lastModified || itemLevelData.lastModifiedDate || cve.lastModifiedDate || new Date().toISOString(),
+        lastModified: cve.lastModified || new Date().toISOString(),
         descriptions: descriptions,
         metrics: metrics,
         configurations: configurations,
@@ -321,8 +307,22 @@ export class NvdParserService {
         severity: severity,
         cvssScore: cvssScore,
         versionRanges: versionRanges,
+        
+        // NVD 2.0 特有欄位
+        sourceIdentifier: sourceIdentifier,
+        vulnStatus: vulnStatus,
+        weaknesses: weaknesses,
+        cveTags: cveTags,
+        
+        // 效能優化欄位
+        primaryCvssVector: primaryCvssVector,
+        cpeMatchCount: cpeMatchCount,
+        referenceCount: referenceCount,
+        vendorProducts: vendorProducts,
+        ecosystems: ecosystems,
+        
         // 版本管理欄位
-        dataVersion: dataVersion || new Date().toISOString().split('T')[0], // 預設使用當前日期
+        dataVersion: dataVersion || new Date().toISOString().split('T')[0],
         publishedYear: new Date(publishedDate).getFullYear(),
         syncTimestamp: Date.now()
       };
@@ -373,18 +373,14 @@ export class NvdParserService {
   }
 
   /**
-   * 提取描述
+   * 提取描述 (NVD 2.0 格式)
    */
   private extractDescriptions(cve: any): any[] {
     const descriptions: any[] = [];
     
-    // API 2.0 格式
+    // NVD 2.0 格式
     if (Array.isArray(cve.descriptions)) {
       descriptions.push(...cve.descriptions);
-    }
-    // 1.1 Feed 格式
-    else if (cve.description?.description_data && Array.isArray(cve.description.description_data)) {
-      descriptions.push(...cve.description.description_data);
     }
     // 備用格式
     else if (cve.description && typeof cve.description === 'string') {
@@ -395,97 +391,27 @@ export class NvdParserService {
   }
 
   /**
-   * 提取指標
+   * 提取指標 (NVD 2.0 格式)
    */
   private extractMetrics(cve: any): any {
-    // API 2.0 格式
+    // NVD 2.0 格式
     if (cve.metrics) {
       return cve.metrics;
-    }
-    // 1.1 Feed 格式
-    else if (cve.impact) {
-      const metrics: any = {};
-      
-      // CVSS v3.1
-      if (cve.impact.baseMetricV3?.cvssV3) {
-        metrics.cvssMetricV31 = [{ 
-          cvssData: cve.impact.baseMetricV3.cvssV3,
-          exploitabilityScore: cve.impact.baseMetricV3.exploitabilityScore,
-          impactScore: cve.impact.baseMetricV3.impactScore
-        }];
-      }
-      
-      // CVSS v3.0
-      if (cve.impact.baseMetricV30?.cvssV30) {
-        metrics.cvssMetricV30 = [{ 
-          cvssData: cve.impact.baseMetricV30.cvssV30,
-          exploitabilityScore: cve.impact.baseMetricV30.exploitabilityScore,
-          impactScore: cve.impact.baseMetricV30.impactScore
-        }];
-      }
-      
-      // CVSS v2
-      if (cve.impact.baseMetricV2?.cvssV2) {
-        metrics.cvssMetricV2 = [{ 
-          cvssData: cve.impact.baseMetricV2.cvssV2,
-          exploitabilityScore: cve.impact.baseMetricV2.exploitabilityScore,
-          impactScore: cve.impact.baseMetricV2.impactScore
-        }];
-      }
-      
-      return Object.keys(metrics).length > 0 ? metrics : undefined;
     }
     
     return undefined;
   }
 
   /**
-   * 提取設定和版本範圍
+   * 提取設定和版本範圍 (NVD 2.0 格式)
    */
   private extractConfigurations(cve: any): { configurations: any[], versionRanges: VersionRange[] } {
     const configurations: any[] = [];
     const versionRanges: VersionRange[] = [];
     
-    // API 2.0 格式 - 直接在 cve 底下
+    // NVD 2.0 格式 - 直接在 cve.configurations 底下
     if (Array.isArray(cve.configurations)) {
       configurations.push(...cve.configurations);
-    }
-    // 1.1 Feed 格式 - 在 item 層級的 configurations
-    else if (cve.configurations?.nodes) {
-      configurations.push(cve.configurations);
-    }
-    // 1.1 Feed 格式 - 舊的 affects 格式
-    else if (cve.affects?.vendor?.vendor_data) {
-      // 處理 1.1 格式的 affects 資料
-      const nodes: any[] = [];
-      
-      for (const vendor of cve.affects.vendor.vendor_data) {
-        for (const product of vendor.product.product_data || []) {
-          for (const version of product.version.version_data || []) {
-            // 轉換為類似 2.0 格式的結構
-            const cpeMatch = {
-              vulnerable: true,
-              criteria: `cpe:2.3:a:${vendor.vendor_name}:${product.product_name}:${version.version_value}:*:*:*:*:*:*:*`,
-              versionStartIncluding: version.version_affected === '>=' ? version.version_value : undefined,
-              versionEndIncluding: version.version_affected === '<=' ? version.version_value : undefined
-            };
-            
-            if (!nodes.length) {
-              nodes.push({
-                operator: 'OR',
-                negate: false,
-                cpeMatch: []
-              });
-            }
-            
-            nodes[0].cpeMatch.push(cpeMatch);
-          }
-        }
-      }
-      
-      if (nodes.length > 0) {
-        configurations.push({ nodes });
-      }
     }
 
     // 提取版本範圍
@@ -525,22 +451,14 @@ export class NvdParserService {
   }
 
   /**
-   * 提取參考連結
+   * 提取參考連結 (NVD 2.0 格式)
    */
   private extractReferences(cve: any): any[] {
     const references: any[] = [];
     
-    // API 2.0 格式
+    // NVD 2.0 格式
     if (Array.isArray(cve.references)) {
       references.push(...cve.references);
-    }
-    // 1.1 Feed 格式
-    else if (cve.references?.reference_data && Array.isArray(cve.references.reference_data)) {
-      references.push(...cve.references.reference_data.map((ref: any) => ({
-        url: ref.url,
-        source: ref.source || ref.refsource,
-        tags: Array.isArray(ref.tags) ? ref.tags : []
-      })));
     }
     
     return references;
@@ -745,6 +663,80 @@ export class NvdParserService {
     const remaining = total - processed;
     
     return remaining / rate;
+  }
+
+  /**
+   * 提取弱點分類（NVD 2.0）
+   */
+  private extractWeaknesses(cve: any): any[] {
+    if (Array.isArray(cve.weaknesses)) {
+      return cve.weaknesses;
+    }
+    return [];
+  }
+
+  /**
+   * 提取廠商-產品組合
+   */
+  private extractVendorProducts(versionRanges: VersionRange[]): string[] {
+    const vendorProducts = new Set<string>();
+    
+    for (const range of versionRanges) {
+      if (range.vendor && range.product) {
+        vendorProducts.add(`${range.vendor}:${range.product}`);
+      }
+    }
+    
+    return Array.from(vendorProducts);
+  }
+
+  /**
+   * 提取生態系統列表
+   */
+  private extractEcosystems(versionRanges: VersionRange[]): string[] {
+    const ecosystems = new Set<string>();
+    
+    for (const range of versionRanges) {
+      if (range.ecosystem && range.ecosystem !== 'unknown') {
+        ecosystems.add(range.ecosystem);
+      }
+    }
+    
+    return Array.from(ecosystems);
+  }
+
+  /**
+   * 提取主要 CVSS 向量
+   */
+  private extractPrimaryCvssVector(metrics: any): string | undefined {
+    // 優先順序：v3.1 > v3.0 > v2.0
+    if (metrics?.cvssMetricV31?.[0]) {
+      return metrics.cvssMetricV31[0].cvssData?.vectorString;
+    }
+    if (metrics?.cvssMetricV30?.[0]) {
+      return metrics.cvssMetricV30[0].cvssData?.vectorString;
+    }
+    if (metrics?.cvssMetricV2?.[0]) {
+      return metrics.cvssMetricV2[0].cvssData?.vectorString;
+    }
+    return undefined;
+  }
+
+  /**
+   * 計算 CPE 匹配總數
+   */
+  private calculateCpeMatchCount(configurations: any[]): number {
+    let totalCount = 0;
+    
+    for (const config of configurations) {
+      const nodes = config.nodes || [];
+      for (const node of nodes) {
+        const matches = node.cpeMatch || [];
+        totalCount += matches.length;
+      }
+    }
+    
+    return totalCount;
   }
 
   /**

@@ -8,7 +8,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSnackBarModule, MatSnackBar } from '@angular/material/snack-bar';
 import { MatTableModule } from '@angular/material/table';
-import { MatDialogModule, MatDialog } from '@angular/material/dialog';
+import { MatDialogModule } from '@angular/material/dialog';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { Subscription } from 'rxjs';
@@ -79,8 +79,7 @@ export class ScanComponent implements OnInit, OnDestroy {
     public backgroundScanService: BackgroundScanService,
     public fileParserService: FileParserService,
     private localScanService: LocalScanService,
-    private snackBar: MatSnackBar,
-    private dialog: MatDialog
+    private snackBar: MatSnackBar
   ) {
     // 從路由狀態取得套件清單和背景任務資訊
     const navigation = this.router.getCurrentNavigation();
@@ -117,7 +116,7 @@ export class ScanComponent implements OnInit, OnDestroy {
     this.checkLocalDatabaseStatus();
 
     // 訂閱背景掃描狀態
-    this.backgroundStateSubscription = this.backgroundScanService.state$.subscribe(state => {
+    this.backgroundStateSubscription = this.backgroundScanService.state$.subscribe(() => {
       // 檢查是否有與當前套件相關的任務
       this.updateCurrentTaskStatus();
     });
@@ -176,9 +175,8 @@ export class ScanComponent implements OnInit, OnDestroy {
         case 'paused': 
           return `已暫停 - 進度：${this.currentTask.progress.current}/${this.currentTask.progress.total}`;
         case 'completed': 
-          const vulnerableCount = this.currentTask.results?.filter(r => r.vulnerabilities.length > 0).length || 0;
-          const totalVulns = this.currentTask.results?.reduce((sum, r) => sum + r.vulnerabilities.length, 0) || 0;
-          return totalVulns > 0 ? `發現 ${totalVulns} 個漏洞` : '未發現漏洞';
+          const totalVulnerabilities = this.currentTask.results?.reduce((sum, r) => sum + r.vulnerabilities.length, 0) || 0;
+          return totalVulnerabilities > 0 ? `發現 ${totalVulnerabilities} 個漏洞` : '未發現漏洞';
         case 'failed': return `掃描失敗：${this.currentTask.error || '未知錯誤'}`;
         case 'cancelled': return '已取消掃描';
       }
@@ -205,7 +203,7 @@ export class ScanComponent implements OnInit, OnDestroy {
   startBackgroundScan(): void {
     // API 配置已在 startScan() 中設定
     const taskName = `掃描任務 - ${new Date().toLocaleString()}`;
-    const taskId = this.backgroundScanService.createScanTask(
+    this.backgroundScanService.createScanTask(
       taskName,
       this.packages,
       this.scanConfig,

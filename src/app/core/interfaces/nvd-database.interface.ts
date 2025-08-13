@@ -9,7 +9,7 @@ export interface NvdDatabaseSchema {
   metadata: MetadataRecord;
 }
 
-// CVE 記錄
+// CVE 記錄（NVD 2.0 優化版）
 export interface CveRecord {
   id: string; // CVE-ID 作為主鍵
   published: string;
@@ -27,6 +27,21 @@ export interface CveRecord {
   
   // 版本範圍資訊（預處理）
   versionRanges: VersionRange[];
+  
+  // NVD 2.0 特有欄位
+  sourceIdentifier?: string; // CVE 來源標識符
+  vulnStatus?: string; // 漏洞狀態 (Analyzed, Awaiting Analysis, etc.)
+  weaknesses?: CveWeakness[]; // CWE 分類
+  cveTags?: string[]; // CVE 標籤
+  
+  // 效能優化欄位（扁平化存取）
+  primaryCvssVector?: string; // 主要 CVSS 向量（快速存取）
+  cpeMatchCount: number; // CPE 匹配數量（用於排序和篩選）
+  referenceCount: number; // 參考連結數量
+  
+  // 搜尋優化欄位
+  vendorProducts: string[]; // 廠商-產品組合 ["vendor:product"]
+  ecosystems: string[]; // 相關生態系統列表
   
   // 版本管理欄位
   dataVersion: string; // 資料版本標記 (格式: YYYY-MM-DD 或 incremental-YYYY-MM-DD)
@@ -134,6 +149,13 @@ export interface CveReference {
   url: string;
   source?: string;
   tags?: string[];
+}
+
+// CVE 弱點分類（NVD 2.0 新增）
+export interface CveWeakness {
+  source: string;
+  type: string; // Primary, Secondary
+  description: CveDescription[];
 }
 
 // 元資料記錄（追蹤資料庫狀態）

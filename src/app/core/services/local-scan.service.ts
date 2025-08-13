@@ -12,6 +12,7 @@ import {
   PackageVulnerabilityQuery,
   VulnerabilityQueryResult
 } from '../interfaces/nvd-database.interface';
+import { isVulnerabilityFixed } from '../../shared/utils/version-utils';
 
 @Injectable({
   providedIn: 'root'
@@ -47,7 +48,7 @@ export class LocalScanService {
     };
 
     return this.databaseService.queryPackageVulnerabilities(query).pipe(
-      map(results => this.transformQueryResults(results)),
+      map(results => this.transformQueryResults(results, version)),
       catchError(error => {
         console.error(`掃描套件 ${packageName} 時發生錯誤:`, error);
         // 如果本地掃描失敗，可以選擇回退到 API 掃描
@@ -218,7 +219,7 @@ export class LocalScanService {
           });
         });
 
-        return this.transformQueryResults(Array.from(combinedResults.values()));
+        return this.transformQueryResults(Array.from(combinedResults.values()), version);
       })
     );
   }
@@ -277,9 +278,10 @@ export class LocalScanService {
 
   /**
    * 轉換查詢結果為內部格式（與 API 掃描保持一致）
+   * 加入版本比較邏輯，過濾已修復的漏洞
    */
-  private transformQueryResults(results: VulnerabilityQueryResult[]): Vulnerability[] {
-    return results.map(result => ({
+  private transformQueryResults(results: VulnerabilityQueryResult[], packageVersion?: string): Vulnerability[] {
+    const vulnerabilities = results.map(result => ({
       cveId: result.cveId,
       description: result.description,
       severity: result.severity,
@@ -293,6 +295,26 @@ export class LocalScanService {
       // 新增欄位以支援本地掃描的額外資訊
       matchReason: result.matchReason
     } as Vulnerability & { matchReason: string }));
+
+    // 如果提供了套件版本，過濾已修復的漏洞
+    if (packageVersion) {
+      return vulnerabilities.filter(vuln => {
+        const isFixed = isVulnerabilityFixed(
+          packageVersion,
+          vuln.affectedVersions,
+          vuln.fixedVersion
+        );
+        
+        // 記錄過濾資訊
+        if (isFixed) {
+          console.log(`漏洞 ${vuln.cveId} 在版本 ${packageVersion} 中已修復`);
+        }
+        
+        return !isFixed; // 只返回尚未修復的漏洞
+      });
+    }
+
+    return vulnerabilities;
   }
 
   /**

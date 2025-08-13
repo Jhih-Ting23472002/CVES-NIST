@@ -18,7 +18,7 @@ import { DatabaseWorkerService } from './database-worker.service';
 })
 export class NvdDatabaseService {
   private readonly DB_NAME = 'NvdLocalDatabase';
-  private readonly DB_VERSION = 1;
+  private readonly DB_VERSION = 2; // 升級版本以支援 NVD 2.0 優化
   private readonly CVE_STORE = 'cve';
   private readonly CPE_STORE = 'cpe';
   private readonly METADATA_STORE = 'metadata';
@@ -98,26 +98,47 @@ export class NvdDatabaseService {
   }
 
   /**
-   * 建立 IndexedDB stores
+   * 建立 IndexedDB stores（NVD 2.0 優化版）
    */
   private createStores(db: IDBDatabase): void {
     // CVE store
     if (!db.objectStoreNames.contains(this.CVE_STORE)) {
       const cveStore = db.createObjectStore(this.CVE_STORE, { keyPath: 'id' });
       
-      // 建立索引以加速查詢
+      // 基本搜尋索引
       cveStore.createIndex('severity', 'severity');
       cveStore.createIndex('cvssScore', 'cvssScore');
-      cveStore.createIndex('lastModified', 'lastModified'); // 關鍵索引用於版本管理
+      cveStore.createIndex('lastModified', 'lastModified');
       cveStore.createIndex('published', 'published');
+      cveStore.createIndex('publishedYear', 'publishedYear'); // 年份快速篩選
+      
+      // 產品搜尋索引（多值）
       cveStore.createIndex('affectedProducts', 'affectedProducts', { multiEntry: true });
+      cveStore.createIndex('vendorProducts', 'vendorProducts', { multiEntry: true }); // 新增：廠商-產品組合
+      cveStore.createIndex('ecosystems', 'ecosystems', { multiEntry: true }); // 新增：生態系統
+      
+      // 文字搜尋索引
       cveStore.createIndex('keywordSearchText', 'keywordSearchText');
       
-      // 新增版本管理索引
-      cveStore.createIndex('dataVersion', 'dataVersion'); // 資料版本標記
-      cveStore.createIndex('lastModified_dataVersion', ['lastModified', 'dataVersion']); // 複合索引
-      cveStore.createIndex('published_year', 'publishedYear'); // 發布年份索引
-      cveStore.createIndex('syncTimestamp', 'syncTimestamp'); // 同步時間戳索引
+      // NVD 2.0 特有索引
+      cveStore.createIndex('vulnStatus', 'vulnStatus'); // 新增：漏洞狀態
+      cveStore.createIndex('sourceIdentifier', 'sourceIdentifier'); // 新增：來源標識符
+      cveStore.createIndex('cveTags', 'cveTags', { multiEntry: true }); // 新增：CVE 標籤
+      
+      // 效能優化索引
+      cveStore.createIndex('cpeMatchCount', 'cpeMatchCount'); // 新增：CPE 匹配數量
+      cveStore.createIndex('referenceCount', 'referenceCount'); // 新增：參考連結數量
+      cveStore.createIndex('primaryCvssVector', 'primaryCvssVector'); // 新增：主要 CVSS 向量
+      
+      // 複合索引（提升複雜查詢效能）
+      cveStore.createIndex('severity_cvssScore', ['severity', 'cvssScore']); // 嚴重程度+分數
+      cveStore.createIndex('publishedYear_severity', ['publishedYear', 'severity']); // 年份+嚴重程度
+      cveStore.createIndex('lastModified_vulnStatus', ['lastModified', 'vulnStatus']); // 修改日期+狀態
+      
+      // 版本管理索引
+      cveStore.createIndex('dataVersion', 'dataVersion');
+      cveStore.createIndex('syncTimestamp', 'syncTimestamp');
+      cveStore.createIndex('lastModified_dataVersion', ['lastModified', 'dataVersion']);
     }
 
     // CPE store
