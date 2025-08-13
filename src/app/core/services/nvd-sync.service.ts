@@ -388,7 +388,13 @@ export class NvdSyncService {
    */
   private updateSyncStatus(update: Partial<SyncStatus>): void {
     const currentStatus = this.syncStatus$.value;
-    this.syncStatus$.next({ ...currentStatus, ...update });
+    const newStatus = { ...currentStatus, ...update };
+    console.log('同步狀態更新:', {
+      前一狀態: `${currentStatus.currentPhase} (isRunning: ${currentStatus.isRunning})`,
+      新狀態: `${newStatus.currentPhase} (isRunning: ${newStatus.isRunning})`,
+      訊息: newStatus.message
+    });
+    this.syncStatus$.next(newStatus);
   }
 
   /**

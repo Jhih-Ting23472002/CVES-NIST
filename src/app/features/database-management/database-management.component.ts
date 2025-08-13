@@ -10,6 +10,7 @@ import { MatDialogModule, MatDialog, MAT_DIALOG_DATA } from '@angular/material/d
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatChipsModule } from '@angular/material/chips';
 import { Subscription } from 'rxjs';
+import { LoadingOverlayComponent } from '../../shared/components/loading-overlay.component';
 
 import { NvdSyncService, SyncStatus } from '../../core/services/nvd-sync.service';
 import { LocalScanService } from '../../core/services/local-scan.service';
@@ -29,10 +30,23 @@ import { DatabaseWorkerService } from '../../core/services/database-worker.servi
     MatSnackBarModule,
     MatDialogModule,
     MatTooltipModule,
-    MatChipsModule
+    MatChipsModule,
+    LoadingOverlayComponent
   ],
   template: `
     <div class="database-management">
+      <!-- 載入遮罩 -->
+      <app-loading-overlay
+        [show]="showLoadingOverlay"
+        [title]="loadingTitle"
+        [message]="loadingMessage"
+        [icon]="loadingIcon"
+        [showProgress]="showProgress"
+        [progress]="loadingProgress"
+        [progressText]="progressText"
+        [tips]="loadingTips"
+        [fullscreen]="true">
+      </app-loading-overlay>
       <!-- 說明資訊卡片 -->
       <mat-card class="info-card">
         <mat-card-header>
@@ -495,6 +509,16 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
   connectionStatus: 'connected' | 'disconnected' | 'unknown' = 'unknown';
   isTestingConnection = false;
 
+  // 載入遮罩相關
+  showLoadingOverlay = false;
+  loadingTitle = '';
+  loadingMessage = '';
+  loadingIcon = '';
+  showProgress = false;
+  loadingProgress = 0;
+  progressText = '';
+  loadingTips: string[] = [];
+
   private syncStatusSubscription?: Subscription;
 
   constructor(
@@ -509,6 +533,9 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
     this.loadDatabaseStats();
     this.subscribeToSyncStatus();
     this.testConnection();
+    
+    // 檢查是否有正在進行的同步
+    this.checkExistingSync();
   }
 
   ngOnDestroy(): void {
@@ -568,34 +595,60 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
   subscribeToSyncStatus(): void {
     this.syncStatusSubscription = this.syncService.getSyncStatus().subscribe({
       next: (status) => {
+        const prevPhase = this.syncStatus?.currentPhase;
         this.syncStatus = status;
-        // 同步完成後重新載入統計
-        if (status.currentPhase === 'complete') {
-          setTimeout(() => this.loadDatabaseStats(), 1000);
+        
+        // 當同步狀態改變時的處理
+        if (status.isRunning) {
+          // 如果同步正在執行且載入遮罩未顯示，則顯示
+          if (!this.showLoadingOverlay) {
+            this.showSyncLoadingOverlay();
+          }
+          // 更新載入遮罩進度
+          this.updateSyncProgress(status);
+        } else {
+          // 同步已停止，檢查是否需要隱藏遮罩
+          if (status.currentPhase === 'complete') {
+            if (prevPhase !== 'complete' || this.showLoadingOverlay) {
+              this.hideLoadingOverlay();
+              this.snackBar.open('資料同步完成！', '確定', {
+                duration: 5000,
+                panelClass: ['success-snackbar']
+              });
+              setTimeout(() => this.loadDatabaseStats(), 1000);
+            }
+          } else if (status.currentPhase === 'error') {
+            if (prevPhase !== 'error' || this.showLoadingOverlay) {
+              this.hideLoadingOverlay();
+              this.snackBar.open(`同步失敗：${status.error || '未知錯誤'}`, '確定', {
+                duration: 8000,
+                panelClass: ['error-snackbar']
+              });
+            }
+          } else if (status.currentPhase === 'idle' && this.showLoadingOverlay) {
+            // 如果回到閒置狀態且遮罩仍在顯示，隱藏遮罩
+            this.hideLoadingOverlay();
+          }
         }
       },
       error: (error) => {
+        this.hideLoadingOverlay();
         console.error('取得同步狀態失敗:', error);
       }
     });
   }
 
   performSync(): void {
+    // 顯示遮罩（如果需要的話，subscribeToSyncStatus 會自動處理）
+    this.showSyncLoadingOverlay();
+    
     this.syncService.forceSyncNow().subscribe({
       next: (status) => {
-        if (status.currentPhase === 'complete') {
-          this.snackBar.open('資料同步完成！', '確定', {
-            duration: 5000,
-            panelClass: ['success-snackbar']
-          });
-        } else if (status.currentPhase === 'error') {
-          this.snackBar.open(`同步失敗：${status.error}`, '確定', {
-            duration: 8000,
-            panelClass: ['error-snackbar']
-          });
-        }
+        // 狀態更新由 subscribeToSyncStatus 統一處理
+        console.log('同步狀態更新:', status.currentPhase, status.message);
       },
       error: (error) => {
+        this.hideLoadingOverlay();
         console.error('同步失敗:', error);
         this.snackBar.open(`同步失敗：${error.message}`, '確定', {
           duration: 8000,
@@ -788,6 +841,74 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
             });
           }
         });
+      }
+    });
+  }
+
+  /**
+   * 顯示同步載入遮罩
+   */
+  private showSyncLoadingOverlay(): void {
+    this.loadingTitle = '正在同步 NVD 資料庫';
+    this.loadingMessage = '正在下載最新的漏洞資料庫，這可能需要幾分鐘時間...';
+    this.loadingIcon = 'sync';
+    this.showProgress = true;
+    this.loadingProgress = 0;
+    this.progressText = '';
+    this.loadingTips = [
+      '初始同步需要下載近四年的 NVD 資料',
+      '同步過程中請保持網路連接',
+      '同步完成後即可使用本地掃描功能',
+      '您可以在其他頁面繼續操作'
+    ];
+    this.showLoadingOverlay = true;
+  }
+
+  /**
+   * 更新同步進度
+   */
+  private updateSyncProgress(status: SyncStatus): void {
+    if (status.progress) {
+      this.loadingProgress = status.progress.percentage;
+      this.progressText = `${status.progress.processed} / ${status.progress.total}`;
+    }
+    
+    // 根據階段更新訊息
+    const phaseMessages = {
+      'download': '正在下載 NVD 資料檔案...',
+      'parse': '正在解析漏洞資料...',
+      'store': '正在儲存到本地資料庫...'
+    };
+    
+    if (phaseMessages[status.currentPhase as keyof typeof phaseMessages]) {
+      this.loadingMessage = phaseMessages[status.currentPhase as keyof typeof phaseMessages];
+    }
+  }
+
+  /**
+   * 隱藏載入遮罩
+   */
+  private hideLoadingOverlay(): void {
+    this.showLoadingOverlay = false;
+    this.loadingTitle = '';
+    this.loadingMessage = '';
+    this.loadingIcon = '';
+    this.showProgress = false;
+    this.loadingProgress = 0;
+    this.progressText = '';
+    this.loadingTips = [];
+  }
+
+  /**
+   * 檢查是否有現有的同步進程
+   */
+  private checkExistingSync(): void {
+    // 取得當前同步狀態
+    this.syncService.getSyncStatus().subscribe(status => {
+      if (status.isRunning) {
+        // 如果有正在執行的同步，顯示遮罩
+        this.showSyncLoadingOverlay();
+        this.updateSyncProgress(status);
       }
     });
   }

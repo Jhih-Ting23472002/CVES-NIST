@@ -15,6 +15,7 @@ import { Subscription } from 'rxjs';
 
 import { NistApiService } from '../../core/services/nist-api.service';
 import { BackgroundScanService } from '../../core/services/background-scan.service';
+import { LoadingOverlayComponent } from '../../shared/components/loading-overlay.component';
 import { FileParserService } from '../../core/services/file-parser.service';
 import { LocalScanService } from '../../core/services/local-scan.service';
 import { 
@@ -41,7 +42,8 @@ import {
     MatTableModule,
     MatDialogModule,
     MatSlideToggleModule,
-    MatTooltipModule
+    MatTooltipModule,
+    LoadingOverlayComponent
   ],
   templateUrl: './scan.component.html',
   styleUrls: ['./scan.component.scss']
@@ -67,6 +69,14 @@ export class ScanComponent implements OnInit, OnDestroy {
   // 本地掃描相關
   useLocalScan = false;
   isLocalDatabaseReady = false;
+  isCheckingDatabase = false;
+  
+  // 載入遮罩相關
+  showLoadingOverlay = false;
+  loadingTitle = '';
+  loadingMessage = '';
+  loadingIcon = '';
+  loadingTips: string[] = [];
   
   displayedColumns = ['package', 'vulnerabilities', 'highestSeverity'];
   private scanSubscription?: Subscription;
@@ -329,13 +339,23 @@ export class ScanComponent implements OnInit, OnDestroy {
    * 檢查本地資料庫狀態
    */
   private checkLocalDatabaseStatus(): void {
+    this.isCheckingDatabase = true;
+    this.showDatabaseCheckingOverlay();
+    
     this.localScanService.isDatabaseReady().subscribe({
       next: (isReady) => {
         this.isLocalDatabaseReady = isReady;
+        this.isCheckingDatabase = false;
+        this.hideLoadingOverlay();
+        
         if (isReady) {
           // 預設使用本地掃描（如果可用）
           this.useLocalScan = true;
           console.log('本地資料庫可用，預設啟用本地掃描');
+          this.snackBar.open('本地資料庫準備就緒，已啟用本地掃描模式', '確定', {
+            duration: 3000,
+            panelClass: ['success-snackbar']
+          });
         } else {
           this.useLocalScan = false;
           console.log('本地資料庫不可用，將使用 API 掃描');
@@ -345,6 +365,8 @@ export class ScanComponent implements OnInit, OnDestroy {
         console.warn('檢查本地資料庫狀態失敗:', error);
         this.isLocalDatabaseReady = false;
         this.useLocalScan = false;
+        this.isCheckingDatabase = false;
+        this.hideLoadingOverlay();
       }
     });
   }
@@ -534,6 +556,47 @@ export class ScanComponent implements OnInit, OnDestroy {
     };
     
     return statusMap[this.currentTask.status] || this.currentTask.status;
+  }
+
+  /**
+   * 顯示資料庫檢查載入遮罩
+   */
+  private showDatabaseCheckingOverlay(): void {
+    this.loadingTitle = '檢查本地資料庫狀態';
+    this.loadingMessage = '正在檢查本地 NVD 資料庫是否可用...';
+    this.loadingIcon = 'storage';
+    this.loadingTips = [
+      '首次使用需要同步 NVD 資料庫',
+      '本地掃描速度比 API 掃描快 10-20 倍',
+      '本地掃描支援離線使用'
+    ];
+    this.showLoadingOverlay = true;
+  }
+
+  /**
+   * 顯示資料庫同步載入遮罩
+   */
+  showDatabaseSyncOverlay(): void {
+    this.loadingTitle = '正在同步 NVD 資料庫';
+    this.loadingMessage = '正在下載最新的漏洞資料庫，這可能需要幾分鐘時間...';
+    this.loadingIcon = 'sync';
+    this.loadingTips = [
+      '初始同步需要下載近四年的 NVD 資料',
+      '同步過程中請保持網路連接',
+      '同步完成後即可使用本地掃描功能'
+    ];
+    this.showLoadingOverlay = true;
+  }
+
+  /**
+   * 隱藏載入遮罩
+   */
+  private hideLoadingOverlay(): void {
+    this.showLoadingOverlay = false;
+    this.loadingTitle = '';
+    this.loadingMessage = '';
+    this.loadingIcon = '';
+    this.loadingTips = [];
   }
 
   goBack(): void {

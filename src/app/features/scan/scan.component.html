@@ -1,4 +1,14 @@
 <div class="scan-container">
+  <!-- 載入遮罩 -->
+  <app-loading-overlay
+    [show]="showLoadingOverlay"
+    [title]="loadingTitle"
+    [message]="loadingMessage"
+    [icon]="loadingIcon"
+    [tips]="loadingTips"
+    [fullscreen]="true">
+  </app-loading-overlay>
+
   <mat-card>
     <mat-card-header>
       <mat-card-title>
