@@ -147,8 +147,8 @@ export class UploadComponent implements OnInit {
     // 檔案大小檢查 (10MB)
     const maxSize = 10 * 1024 * 1024;
     if (file.size > maxSize) {
-      this.snackBar.open('檔案大小超過 10MB 限制', '確定', {
-        duration: 5000,
+      this.snackBar.open('❌ 檔案太大了！請選擇小於 10MB 的檔案', '我知道了', {
+        duration: 6000,
         panelClass: ['error-snackbar']
       });
       return;
@@ -157,8 +157,8 @@ export class UploadComponent implements OnInit {
     // 檔案類型檢查
     const isValidFile = file.name === 'package.json' || file.name === 'package-lock.json';
     if (!isValidFile) {
-      this.snackBar.open('請選擇 package.json 或 package-lock.json 檔案', '確定', {
-        duration: 5000,
+      this.snackBar.open('⚠️ 請選擇正確的檔案：package.json 或 package-lock.json', '我知道了', {
+        duration: 6000,
         panelClass: ['error-snackbar']
       });
       return;
@@ -204,16 +204,16 @@ export class UploadComponent implements OnInit {
             }
           }, 500);
         } else {
-          this.snackBar.open('檔案驗證失敗，請檢查錯誤訊息', '確定', {
-            duration: 5000,
+          this.snackBar.open('❌ 檔案格式有問題，請檢查下方的錯誤訊息', '我知道了', {
+            duration: 6000,
             panelClass: ['error-snackbar']
           });
         }
       },
       error: (error) => {
         this.isValidating = false;
-        this.snackBar.open(`驗證失敗: ${error.message}`, '確定', {
-          duration: 5000,
+        this.snackBar.open(`❌ 檔案讀取失敗：${error.message}`, '我知道了', {
+          duration: 6000,
           panelClass: ['error-snackbar']
         });
       }
@@ -350,6 +350,16 @@ export class UploadComponent implements OnInit {
   getCurrentModeDescription(): string {
     const currentMode = this.scanModes.find(mode => mode.config.mode === this.currentScanConfig.mode);
     return currentMode?.description || '';
+  }
+
+  // 取得簡化的模式描述（為新手友善）
+  getSimplifiedModeDescription(mode: string): string {
+    const descriptions: { [key: string]: string } = {
+      'fast': '檢查主要套件，速度快',
+      'balanced': '檢查主要+開發套件',
+      'comprehensive': '檢查全部套件，最完整'
+    };
+    return descriptions[mode] || '';
   }
 
   // 取得掃描統計資訊

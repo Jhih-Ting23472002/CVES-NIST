@@ -98,8 +98,19 @@ import { DatabaseWorkerService } from '../../core/services/database-worker.servi
         </mat-card-header>
         
         <mat-card-content>
+          <!-- 資料庫檢查中狀態 -->
+          <div class="checking-section" *ngIf="isDatabaseChecking">
+            <div class="checking-status">
+              <mat-icon class="spinning">autorenew</mat-icon>
+              <div class="checking-content">
+                <div class="checking-message">正在檢查本地資料庫狀態...</div>
+                <div class="checking-hint">初次載入可能需要幾秒鐘時間</div>
+              </div>
+            </div>
+          </div>
+
           <!-- 資料庫狀態 -->
-          <div class="status-section" *ngIf="databaseStats">
+          <div class="status-section" *ngIf="databaseStats && !isDatabaseChecking">
             <h3>資料庫統計</h3>
             <div class="stats-grid">
               <div class="stat-item">
@@ -185,7 +196,7 @@ import { DatabaseWorkerService } from '../../core/services/database-worker.servi
           <button mat-raised-button 
                   color="primary" 
                   (click)="performSync()"
-                  [disabled]="syncStatus?.isRunning"
+                  [disabled]="syncStatus?.isRunning || isDatabaseChecking"
                   matTooltip="手動執行資料同步">
             <mat-icon>sync</mat-icon>
             {{ getSyncButtonText() }}
@@ -194,7 +205,7 @@ import { DatabaseWorkerService } from '../../core/services/database-worker.servi
           <button mat-raised-button 
                   color="warn"
                   (click)="clearDatabase()"
-                  [disabled]="syncStatus?.isRunning"
+                  [disabled]="syncStatus?.isRunning || isDatabaseChecking"
                   matTooltip="清除所有本地資料">
             <mat-icon>delete_sweep</mat-icon>
             清除資料庫
@@ -202,16 +213,16 @@ import { DatabaseWorkerService } from '../../core/services/database-worker.servi
           
           <button mat-stroked-button 
                   (click)="refreshStatus()"
-                  [disabled]="syncStatus?.isRunning"
+                  [disabled]="syncStatus?.isRunning || isDatabaseChecking"
                   matTooltip="重新載入狀態">
-            <mat-icon>refresh</mat-icon>
-            重新載入
+            <mat-icon [class]="isDatabaseChecking ? 'spinning' : ''">refresh</mat-icon>
+            {{ isDatabaseChecking ? '檢查中...' : '重新載入' }}
           </button>
           
           <button mat-stroked-button 
                   color="accent"
                   (click)="smartCleanup()"
-                  [disabled]="syncStatus?.isRunning || !workerService.isWorkerAvailable()"
+                  [disabled]="syncStatus?.isRunning || isDatabaseChecking || !workerService.isWorkerAvailable()"
                   matTooltip="使用 Web Worker 智慧清理過期資料">
             <mat-icon>auto_fix_high</mat-icon>
             智慧清理
@@ -356,6 +367,48 @@ import { DatabaseWorkerService } from '../../core/services/database-worker.servi
     .years-label {
       font-weight: bold;
       margin-right: 8px;
+    }
+
+    .checking-section {
+      margin: 20px 0;
+      padding: 20px;
+      text-align: center;
+    }
+
+    .checking-status {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: 20px;
+      background-color: #f5f5f5;
+      border-radius: 8px;
+      border-left: 4px solid #2196f3;
+    }
+
+    .checking-content {
+      text-align: left;
+    }
+
+    .checking-message {
+      font-weight: 500;
+      color: #333;
+      margin-bottom: 4px;
+    }
+
+    .checking-hint {
+      font-size: 0.9rem;
+      color: #666;
+    }
+
+    .spinning {
+      animation: spin 1s linear infinite;
+      color: #2196f3;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
     }
 
     .sync-section {
@@ -508,6 +561,7 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
   syncStatus: SyncStatus | null = null;
   connectionStatus: 'connected' | 'disconnected' | 'unknown' = 'unknown';
   isTestingConnection = false;
+  isDatabaseChecking = false; // 新增：資料庫檢查狀態
 
   // 載入遮罩相關
   showLoadingOverlay = false;
@@ -547,6 +601,9 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
   }
 
   loadDatabaseStats(): void {
+    // 設置檢查中狀態
+    this.isDatabaseChecking = true;
+    
     // 先檢查資料庫是否準備好
     this.localScanService.isDatabaseReady().subscribe({
       next: (isReady) => {
@@ -555,6 +612,7 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
           this.localScanService.getDatabaseStats().subscribe({
             next: (stats) => {
               this.databaseStats = stats;
+              this.isDatabaseChecking = false; // 檢查完成
             },
             error: (error) => {
               console.error('載入資料庫統計失敗:', error);
@@ -566,6 +624,7 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
                 totalCveCount: 0,
                 totalCpeCount: 0
               };
+              this.isDatabaseChecking = false; // 檢查完成
             }
           });
         } else {
@@ -577,6 +636,7 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
             totalCveCount: 0,
             totalCpeCount: 0
           };
+          this.isDatabaseChecking = false; // 檢查完成
           console.log('資料庫尚未準備好，顯示預設統計');
         }
       },
@@ -590,6 +650,7 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
           totalCveCount: 0,
           totalCpeCount: 0
         };
+        this.isDatabaseChecking = false; // 檢查完成
       }
     });
   }
