@@ -161,7 +161,7 @@ export class NvdDatabaseService {
   }
 
   /**
-   * 批次儲存 CVE 記錄
+   * 批次儲存 CVE 記錄（改用多事務模式避免超時）
    */
   storeCveRecords(records: CveRecord[]): Observable<BatchProcessProgress> {
     return new Observable(observer => {
@@ -170,68 +170,140 @@ export class NvdDatabaseService {
         return;
       }
 
-      const transaction = this.db.transaction([this.CVE_STORE], 'readwrite');
-      const store = transaction.objectStore(this.CVE_STORE);
-      
       let processed = 0;
       const total = records.length;
-      const batchSize = 1000; // 每批處理 1000 筆記錄
+      const batchSize = 500; // 減少批次大小避免事務超時
       let currentBatch = 0;
+      const maxRetries = 3; // 最大重試次數
 
-      const processBatch = () => {
+      const processBatch = (retryCount = 0) => {
         const start = currentBatch * batchSize;
         const end = Math.min(start + batchSize, total);
         const batch = records.slice(start, end);
 
-        const promises = batch.map(record => {
-          return new Promise<void>((resolve, reject) => {
-            const request = store.put(record);
-            request.onsuccess = () => {
-              processed++;
-              resolve();
-            };
-            request.onerror = () => reject(request.error);
-          });
-        });
+        if (batch.length === 0) {
+          observer.complete();
+          return;
+        }
 
-        Promise.all(promises)
-          .then(() => {
-            const progress: BatchProcessProgress = {
-              type: 'store',
-              processed: processed,
-              total: total,
-              percentage: (processed / total) * 100,
-              message: `已儲存 ${processed}/${total} 筆 CVE 記錄`,
-              startTime: new Date()
-            };
+        // 為每個批次創建新的事務
+        try {
+          const transaction = this.db!.transaction([this.CVE_STORE], 'readwrite');
+          const store = transaction.objectStore(this.CVE_STORE);
+          
+          let batchProcessed = 0;
+          let hasError = false;
 
-            this.storeProgress$.next(progress);
-            observer.next(progress);
+          // 處理當前批次的所有記錄
+          for (const record of batch) {
+            if (hasError) break;
+            
+            try {
+              const request = store.put(record);
+              
+              request.onsuccess = () => {
+                batchProcessed++;
+                processed++;
+                
+                // 當此批次完成時
+                if (batchProcessed === batch.length) {
+                  const progress: BatchProcessProgress = {
+                    type: 'store',
+                    processed: processed,
+                    total: total,
+                    percentage: (processed / total) * 100,
+                    message: `已儲存 ${processed}/${total} 筆 CVE 記錄`,
+                    startTime: new Date()
+                  };
 
-            if (end < total) {
-              currentBatch++;
-              // 延遲一下以避免阻塞 UI
-              setTimeout(processBatch, 10);
-            } else {
-              observer.complete();
+                  this.storeProgress$.next(progress);
+                  observer.next(progress);
+
+                  if (processed >= total) {
+                    observer.complete();
+                  } else {
+                    // 短暫延遲後處理下一批次，讓 UI 更新
+                    currentBatch++;
+                    setTimeout(processBatch, 5);
+                  }
+                }
+              };
+
+              request.onerror = () => {
+                if (!hasError) {
+                  hasError = true;
+                  console.error('儲存 CVE 記錄失敗:', request.error);
+                  
+                  // 嘗試重試當前批次
+                  if (retryCount < maxRetries) {
+                    console.log(`重試第 ${retryCount + 1} 次儲存批次 ${currentBatch}`);
+                    setTimeout(() => processBatch(retryCount + 1), 1000);
+                  } else {
+                    observer.error(request.error);
+                  }
+                }
+              };
+            } catch (error) {
+              if (!hasError) {
+                hasError = true;
+                console.error('建立儲存請求失敗:', error);
+                observer.error(error);
+              }
+              break;
             }
-          })
-          .catch(error => {
-            console.error('儲存 CVE 記錄時發生錯誤:', error);
+          }
+
+          transaction.onerror = () => {
+            if (!hasError) {
+              hasError = true;
+              console.error('事務失敗:', transaction.error);
+              
+              // 嘗試重試當前批次
+              if (retryCount < maxRetries) {
+                console.log(`重試第 ${retryCount + 1} 次儲存批次 ${currentBatch}`);
+                setTimeout(() => processBatch(retryCount + 1), 1000);
+              } else {
+                observer.error(transaction.error);
+              }
+            }
+          };
+
+          transaction.onabort = () => {
+            if (!hasError) {
+              hasError = true;
+              console.error('事務被中止');
+              
+              // 嘗試重試當前批次
+              if (retryCount < maxRetries) {
+                console.log(`重試第 ${retryCount + 1} 次儲存批次 ${currentBatch}`);
+                setTimeout(() => processBatch(retryCount + 1), 1000);
+              } else {
+                observer.error(new Error('事務被中止'));
+              }
+            }
+          };
+
+        } catch (error) {
+          console.error('建立事務失敗:', error);
+          
+          // 嘗試重試當前批次
+          if (retryCount < maxRetries) {
+            console.log(`重試第 ${retryCount + 1} 次儲存批次 ${currentBatch}`);
+            setTimeout(() => processBatch(retryCount + 1), 1000);
+          } else {
             observer.error(error);
-          });
+          }
+          return;
+        }
       };
 
+      // 開始處理第一個批次
       processBatch();
-
-      transaction.onerror = () => {
-        observer.error(transaction.error);
-      };
     });
   }
 
   /**
-   * 批次儲存 CPE 記錄
+   * 批次儲存 CPE 記錄（改用多事務模式避免超時）
    */
   storeCpeRecords(records: CpeRecord[]): Observable<BatchProcessProgress> {
     return new Observable(observer => {
@@ -240,40 +312,17 @@ export class NvdDatabaseService {
         return;
       }
 
-      const transaction = this.db.transaction([this.CPE_STORE], 'readwrite');
-      const store = transaction.objectStore(this.CPE_STORE);
-      
       let processed = 0;
       const total = records.length;
-      const batchSize = 1000;
+      const batchSize = 500; // 減少批次大小避免事務超時
+      let currentBatch = 0;
 
-      const storePromises = records.map(record => {
-        return new Promise<void>((resolve, reject) => {
-          const request = store.put(record);
-          request.onsuccess = () => {
-            processed++;
-            
-            if (processed % 100 === 0) {
-              const progress: BatchProcessProgress = {
-                type: 'store',
-                processed: processed,
-                total: total,
-                percentage: (processed / total) * 100,
-                message: `已儲存 ${processed}/${total} 筆 CPE 記錄`,
-                startTime: new Date()
-              };
-              this.storeProgress$.next(progress);
-              observer.next(progress);
-            }
-            
-            resolve();
-          };
-          request.onerror = () => reject(request.error);
-        });
-      });
+      const processBatch = () => {
+        const start = currentBatch * batchSize;
+        const end = Math.min(start + batchSize, total);
+        const batch = records.slice(start, end);
 
-      Promise.all(storePromises)
-        .then(() => {
+        if (batch.length === 0) {
           const finalProgress: BatchProcessProgress = {
             type: 'store',
             processed: total,
@@ -285,15 +334,104 @@ export class NvdDatabaseService {
           this.storeProgress$.next(finalProgress);
           observer.next(finalProgress);
           observer.complete();
-        })
-        .catch(error => {
-          console.error('儲存 CPE 記錄時發生錯誤:', error);
-          observer.error(error);
-        });
+          return;
+        }
 
-      transaction.onerror = () => {
-        observer.error(transaction.error);
+        // 為每個批次創建新的事務
+        try {
+          const transaction = this.db!.transaction([this.CPE_STORE], 'readwrite');
+          const store = transaction.objectStore(this.CPE_STORE);
+          
+          let batchProcessed = 0;
+          let hasError = false;
+
+          // 處理當前批次的所有記錄
+          for (const record of batch) {
+            if (hasError) break;
+            
+            try {
+              const request = store.put(record);
+              
+              request.onsuccess = () => {
+                batchProcessed++;
+                processed++;
+                
+                // 當此批次完成時
+                if (batchProcessed === batch.length) {
+                  const progress: BatchProcessProgress = {
+                    type: 'store',
+                    processed: processed,
+                    total: total,
+                    percentage: (processed / total) * 100,
+                    message: `已儲存 ${processed}/${total} 筆 CPE 記錄`,
+                    startTime: new Date()
+                  };
+
+                  this.storeProgress$.next(progress);
+                  observer.next(progress);
+
+                  if (processed >= total) {
+                    const finalProgress: BatchProcessProgress = {
+                      type: 'store',
+                      processed: total,
+                      total: total,
+                      percentage: 100,
+                      message: `所有 CPE 記錄儲存完成 (${total} 筆)`,
+                      startTime: new Date()
+                    };
+                    this.storeProgress$.next(finalProgress);
+                    observer.next(finalProgress);
+                    observer.complete();
+                  } else {
+                    // 短暫延遲後處理下一批次
+                    currentBatch++;
+                    setTimeout(processBatch, 5);
+                  }
+                }
+              };
+
+              request.onerror = () => {
+                if (!hasError) {
+                  hasError = true;
+                  console.error('儲存 CPE 記錄失敗:', request.error);
+                  observer.error(request.error);
+                }
+              };
+            } catch (error) {
+              if (!hasError) {
+                hasError = true;
+                console.error('建立儲存請求失敗:', error);
+                observer.error(error);
+              }
+              break;
+            }
+          }
+
+          transaction.onerror = () => {
+            if (!hasError) {
+              hasError = true;
+              console.error('事務失敗:', transaction.error);
+              observer.error(transaction.error);
+            }
+          };
+
+          transaction.onabort = () => {
+            if (!hasError) {
+              hasError = true;
+              console.error('事務被中止');
+              observer.error(new Error('事務被中止'));
+            }
+          };
+
+        } catch (error) {
+          console.error('建立事務失敗:', error);
+          observer.error(error);
+          return;
+        }
       };
+
+      // 開始處理第一個批次
+      processBatch();
     });
   }
 

@@ -162,6 +162,9 @@ export class NvdSyncService {
       // 合併所有年度的 CVE 資料
       const combinedData = this.combineYearlyData(downloadedData);
       
+      let dataToStore: CveRecord[] = [];
+      let isParsingComplete = false;
+      
       this.parserService.parseNvdData(combinedData, this.generateDataVersion()).subscribe({
         next: (parseResult) => {
           if (parseResult.type === 'progress' && parseResult.progress) {
@@ -172,11 +175,19 @@ export class NvdSyncService {
               message: parseResult.progress.message
             });
           } else if (parseResult.type === 'cve' && parseResult.data) {
-            this.storeCveData(parseResult.data as CveRecord[], observer);
+            // 累積要儲存的資料，而不是立即儲存
+            dataToStore.push(...(parseResult.data as CveRecord[]));
           } else if (parseResult.type === 'cpe' && parseResult.data) {
+            // CPE 資料可以立即儲存，因為通常較少
             this.storeCpeData(parseResult.data as CpeRecord[], observer);
           } else if (parseResult.type === 'complete') {
-            this.completeSyncProcess(observer, startTime);
+            isParsingComplete = true;
+            // 解析完成後，開始批次儲存所有 CVE 資料
+            if (dataToStore.length > 0) {
+              this.storeCveDataAndComplete(dataToStore, observer, startTime);
+            } else {
+              this.completeSyncProcess(observer, startTime);
+            }
           }
         },
         error: (error) => {
@@ -206,14 +217,30 @@ export class NvdSyncService {
       message: '解析增量更新資料...'
     });
 
+    let dataToStore: CveRecord[] = [];
+    let isParsingComplete = false;
+
     // 解析 modified 資料
     this.parserService.parseNvdData(recentData).subscribe({
       next: (parseResult) => {
-        if (parseResult.type === 'cve' && parseResult.data) {
-          // 更新現有 CVE 記錄
-          this.updateCveRecords(parseResult.data as CveRecord[], observer);
+        if (parseResult.type === 'progress' && parseResult.progress) {
+          this.updateSyncStatus({
+            isRunning: true,
+            currentPhase: 'parse',
+            progress: parseResult.progress,
+            message: parseResult.progress.message
+          });
+        } else if (parseResult.type === 'cve' && parseResult.data) {
+          // 累積要儲存的資料，而不是立即儲存
+          dataToStore.push(...(parseResult.data as CveRecord[]));
         } else if (parseResult.type === 'complete') {
-          this.completeIncrementalSync(observer, modifiedUpdate);
+          isParsingComplete = true;
+          // 解析完成後，開始批次儲存所有 CVE 資料
+          if (dataToStore.length > 0) {
+            this.updateCveRecordsAndComplete(dataToStore, observer, modifiedUpdate);
+          } else {
+            this.completeIncrementalSync(observer, modifiedUpdate);
+          }
         }
       },
       error: (error) => {
@@ -241,6 +268,36 @@ export class NvdSyncService {
           progress: storeProgress,
           message: storeProgress.message
         });
+      },
+      error: (error) => {
+        this.handleSyncError(observer, error, 'CVE 資料儲存失敗');
+      }
+    });
+  }
+
+  /**
+   * 儲存 CVE 資料並完成同步流程
+   */
+  private storeCveDataAndComplete(records: CveRecord[], observer: any, startTime: Date): void {
+    this.updateSyncStatus({
+      isRunning: true,
+      currentPhase: 'store',
+      progress: null,
+      message: '儲存 CVE 資料到本地資料庫...'
+    });
+
+    this.databaseService.storeCveRecords(records).subscribe({
+      next: (storeProgress) => {
+        this.updateSyncStatus({
+          isRunning: true,
+          currentPhase: 'store',
+          progress: storeProgress,
+          message: storeProgress.message
+        });
+      },
+      complete: () => {
+        // CVE 資料儲存完成，開始完成同步流程
+        this.completeSyncProcess(observer, startTime);
       },
       error: (error) => {
         this.handleSyncError(observer, error, 'CVE 資料儲存失敗');
@@ -294,6 +351,39 @@ export class NvdSyncService {
           progress: storeProgress,
           message: `更新中... ${storeProgress.message}`
         });
+      },
+      error: (error) => {
+        this.handleSyncError(observer, error, 'CVE 記錄更新失敗');
+      }
+    });
+  }
+
+  /**
+   * 更新 CVE 記錄並完成增量同步流程
+   */
+  private updateCveRecordsAndComplete(records: CveRecord[], observer: any, updateInfo: IncrementalUpdate): void {
+    this.updateSyncStatus({
+      isRunning: true,
+      currentPhase: 'store',
+      progress: null,
+      message: '更新 CVE 記錄...'
+    });
+
+    // 更新記錄數量資訊
+    updateInfo.itemsUpdated = records.length;
+
+    this.databaseService.storeCveRecords(records).subscribe({
+      next: (storeProgress) => {
+        this.updateSyncStatus({
+          isRunning: true,
+          currentPhase: 'store',
+          progress: storeProgress,
+          message: `更新中... ${storeProgress.message}`
+        });
+      },
+      complete: () => {
+        // CVE 資料更新完成，開始完成增量同步流程
+        this.completeIncrementalSync(observer, updateInfo);
       },
       error: (error) => {
         this.handleSyncError(observer, error, 'CVE 記錄更新失敗');
@@ -444,7 +534,7 @@ export class NvdSyncService {
     const combinedVulnerabilities: any[] = [];
     
     // 合併所有年度的 CVE 資料
-    for (const [year, yearData] of downloadedData.entries()) {
+    for (const [, yearData] of downloadedData.entries()) {
       if (yearData && yearData.CVE_Items) {
         // 舊格式 (API 1.1)
         combinedVulnerabilities.push(...yearData.CVE_Items);

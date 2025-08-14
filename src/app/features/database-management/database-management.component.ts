@@ -520,6 +520,7 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
   loadingTips: string[] = [];
 
   private syncStatusSubscription?: Subscription;
+  private syncTimeoutTimer?: number;
 
   constructor(
     private syncService: NvdSyncService,
@@ -542,6 +543,7 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
     if (this.syncStatusSubscription) {
       this.syncStatusSubscription.unsubscribe();
     }
+    this.clearSyncTimeout();
   }
 
   loadDatabaseStats(): void {
@@ -603,23 +605,33 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
           // 如果同步正在執行且載入遮罩未顯示，則顯示
           if (!this.showLoadingOverlay) {
             this.showSyncLoadingOverlay();
+            // 設置超時保護（10分鐘）
+            this.setSyncTimeout();
           }
           // 更新載入遮罩進度
           this.updateSyncProgress(status);
         } else {
-          // 同步已停止，檢查是否需要隱藏遮罩
+          // 同步已停止，清除超時定時器
+          this.clearSyncTimeout();
+          
+          // 檢查是否需要隱藏遮罩
           if (status.currentPhase === 'complete') {
-            if (prevPhase !== 'complete' || this.showLoadingOverlay) {
-              this.hideLoadingOverlay();
+            // 確保在完成狀態時關閉遮罩
+            this.hideLoadingOverlay();
+            // 顯示成功訊息（避免重複顯示）
+            if (prevPhase !== 'complete') {
               this.snackBar.open('資料同步完成！', '確定', {
                 duration: 5000,
                 panelClass: ['success-snackbar']
               });
-              setTimeout(() => this.loadDatabaseStats(), 1000);
             }
+            // 延遲重新載入統計以確保資料已完全儲存
+            setTimeout(() => this.loadDatabaseStats(), 1000);
           } else if (status.currentPhase === 'error') {
-            if (prevPhase !== 'error' || this.showLoadingOverlay) {
-              this.hideLoadingOverlay();
+            // 確保在錯誤狀態時關閉遮罩
+            this.hideLoadingOverlay();
+            // 顯示錯誤訊息（避免重複顯示）
+            if (prevPhase !== 'error') {
               this.snackBar.open(`同步失敗：${status.error || '未知錯誤'}`, '確定', {
                 duration: 8000,
                 panelClass: ['error-snackbar']
@@ -629,9 +641,16 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
             // 如果回到閒置狀態且遮罩仍在顯示，隱藏遮罩
             this.hideLoadingOverlay();
           }
+          
+          // 額外的安全檢查：如果 isRunning 為 false 且遮罩還在顯示，強制關閉
+          if (this.showLoadingOverlay && !status.isRunning) {
+            console.log('強制關閉載入遮罩 - 同步已停止但遮罩仍在顯示');
+            this.hideLoadingOverlay();
+          }
         }
       },
       error: (error) => {
+        this.clearSyncTimeout();
         this.hideLoadingOverlay();
         console.error('取得同步狀態失敗:', error);
       }
@@ -639,8 +658,8 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
   }
 
   performSync(): void {
-    // 顯示遮罩（如果需要的話，subscribeToSyncStatus 會自動處理）
-    this.showSyncLoadingOverlay();
+    // 不要在這裡顯示遮罩，讓 subscribeToSyncStatus 統一處理
+    // 這樣可以避免重複顯示和狀態不一致的問題
     
     this.syncService.forceSyncNow().subscribe({
       next: (status) => {
@@ -648,12 +667,20 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
         console.log('同步狀態更新:', status.currentPhase, status.message);
       },
       error: (error) => {
+        // 確保錯誤時關閉遮罩和清除超時定時器
+        this.clearSyncTimeout();
         this.hideLoadingOverlay();
         console.error('同步失敗:', error);
         this.snackBar.open(`同步失敗：${error.message}`, '確定', {
           duration: 8000,
           panelClass: ['error-snackbar']
         });
+        
+        // 錯誤已處理，狀態將由服務內部管理
+      },
+      complete: () => {
+        // 確保完成時關閉遮罩（雙重保險）
+        console.log('forceSyncNow Observable 完成');
       }
     });
   }
@@ -889,6 +916,7 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
    * 隱藏載入遮罩
    */
   private hideLoadingOverlay(): void {
+    this.clearSyncTimeout(); // 清除超時定時器
     this.showLoadingOverlay = false;
     this.loadingTitle = '';
     this.loadingMessage = '';
@@ -909,8 +937,36 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
         // 如果有正在執行的同步，顯示遮罩
         this.showSyncLoadingOverlay();
         this.updateSyncProgress(status);
+        // 設置超時保護
+        this.setSyncTimeout();
       }
     });
+  }
+
+  /**
+   * 設置同步超時保護（10分鐘）
+   */
+  private setSyncTimeout(): void {
+    this.clearSyncTimeout(); // 先清除舊的定時器
+    
+    this.syncTimeoutTimer = window.setTimeout(() => {
+      console.warn('同步操作超時，強制關閉載入遮罩');
+      this.hideLoadingOverlay();
+      this.snackBar.open('同步操作超時，請重試或檢查網路連線', '確定', {
+        duration: 10000,
+        panelClass: ['warning-snackbar']
+      });
+    }, 10 * 60 * 1000); // 10分鐘
+  }
+
+  /**
+   * 清除同步超時定時器
+   */
+  private clearSyncTimeout(): void {
+    if (this.syncTimeoutTimer) {
+      clearTimeout(this.syncTimeoutTimer);
+      this.syncTimeoutTimer = undefined;
+    }
   }
 }
 

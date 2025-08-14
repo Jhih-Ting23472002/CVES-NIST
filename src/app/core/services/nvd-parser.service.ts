@@ -66,17 +66,28 @@ export class NvdParserService {
 
     const processBatch = () => {
       if (processed >= total) {
+        // 發送最終進度
+        const finalProgress: BatchProcessProgress = {
+          type: 'parse',
+          processed: total,
+          total: total,
+          percentage: 100,
+          message: `CVE 解析完成 (${total} 筆記錄)`,
+          startTime: startTime
+        };
+        
+        this.parseProgress$.next(finalProgress);
+        
         observer.next({
           type: 'complete',
-          progress: {
-            type: 'parse',
-            processed: total,
-            total: total,
-            percentage: 100,
-            message: `CVE 解析完成 (${total} 筆記錄)`,
-            startTime: startTime
-          }
+          progress: finalProgress
         });
+        
+        // 清除進度狀態
+        setTimeout(() => {
+          this.parseProgress$.next(null);
+        }, 1000);
+        
         observer.complete();
         return;
       }
@@ -148,17 +159,28 @@ export class NvdParserService {
 
     const processBatch = () => {
       if (processed >= total) {
+        // 發送最終進度
+        const finalProgress: BatchProcessProgress = {
+          type: 'parse',
+          processed: total,
+          total: total,
+          percentage: 100,
+          message: `CPE 解析完成 (${total} 筆記錄)`,
+          startTime: startTime
+        };
+        
+        this.parseProgress$.next(finalProgress);
+        
         observer.next({
           type: 'complete',
-          progress: {
-            type: 'parse',
-            processed: total,
-            total: total,
-            percentage: 100,
-            message: `CPE 解析完成 (${total} 筆記錄)`,
-            startTime: startTime
-          }
+          progress: finalProgress
         });
+        
+        // 清除進度狀態
+        setTimeout(() => {
+          this.parseProgress$.next(null);
+        }, 1000);
+        
         observer.complete();
         return;
       }
