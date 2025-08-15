@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { Observable, BehaviorSubject, forkJoin } from 'rxjs';
+import { Observable, BehaviorSubject, forkJoin, of } from 'rxjs';
 import { map, switchMap, catchError, tap } from 'rxjs/operators';
 import { NvdDatabaseService } from './nvd-database.service';
 import { OptimizedQueryService } from './optimized-query.service';
@@ -26,6 +26,31 @@ export class LocalScanService {
     currentPackage: ''
   });
 
+  // 快取機制
+  private readonly scanCache = new Map<string, Vulnerability[]>();
+  private readonly maxCacheSize = 1000;
+  private readonly cacheExpiry = 10 * 60 * 1000; // 10 分鐘過期
+  private readonly cacheTimestamps = new Map<string, number>();
+
+  // 版本比較快取
+  private readonly versionComparisonCache = new Map<string, boolean>();
+  private readonly versionCacheTimestamps = new Map<string, number>();
+  private readonly versionCacheExpiry = 30 * 60 * 1000; // 30 分鐘過期
+  private readonly maxVersionCacheSize = 200;
+
+  // 效能統計
+  private scanMetrics = {
+    totalScans: 0,
+    cacheHits: 0,
+    cacheMisses: 0,
+    versionCacheHits: 0,
+    versionCacheMisses: 0,
+    parallelBatches: 0,
+    totalScanTime: 0,
+    averageScanTime: 0,
+    lastScanTime: 0,
+  };
+
   constructor(
     private databaseService: NvdDatabaseService,
     private optimizedQueryService: OptimizedQueryService,
@@ -37,6 +62,204 @@ export class LocalScanService {
    */
   getScanProgress(): Observable<ScanProgress> {
     return this.scanProgress$.asObservable();
+  }
+
+  /**
+   * 帶快取的套件掃描方法
+   */
+  scanPackageWithCache(packageName: string, version?: string): Observable<Vulnerability[]> {
+    const startTime = Date.now();
+    const cacheKey = `${packageName}@${version || 'latest'}`;
+    
+    // 檢查快取
+    if (this.isCacheValid(cacheKey)) {
+      const cachedResult = this.scanCache.get(cacheKey);
+      if (cachedResult) {
+        console.log(`[LocalScan] 快取命中: ${cacheKey}`);
+        this.scanMetrics.cacheHits++;
+        this.scanMetrics.totalScans++;
+        return of(cachedResult);
+      }
+    }
+
+    // 快取未命中，執行實際掃描
+    this.scanMetrics.cacheMisses++;
+    this.scanMetrics.totalScans++;
+    
+    return this.scanPackage(packageName, version).pipe(
+      tap(vulnerabilities => {
+        // 更新快取
+        this.updateCache(cacheKey, vulnerabilities);
+        
+        // 更新效能統計
+        const scanTime = Date.now() - startTime;
+        this.scanMetrics.lastScanTime = scanTime;
+        this.scanMetrics.totalScanTime += scanTime;
+        this.scanMetrics.averageScanTime = this.scanMetrics.totalScanTime / this.scanMetrics.totalScans;
+      })
+    );
+  }
+
+  /**
+   * 檢查快取是否有效
+   */
+  private isCacheValid(cacheKey: string): boolean {
+    if (!this.scanCache.has(cacheKey)) return false;
+    
+    const timestamp = this.cacheTimestamps.get(cacheKey);
+    if (!timestamp) return false;
+    
+    const now = Date.now();
+    return (now - timestamp) < this.cacheExpiry;
+  }
+
+  /**
+   * 更新快取
+   */
+  private updateCache(cacheKey: string, vulnerabilities: Vulnerability[]): void {
+    // 如果快取已滿，清理最舊的項目
+    if (this.scanCache.size >= this.maxCacheSize) {
+      this.cleanupOldCacheEntries();
+    }
+
+    this.scanCache.set(cacheKey, vulnerabilities);
+    this.cacheTimestamps.set(cacheKey, Date.now());
+  }
+
+  /**
+   * 清理過期的快取項目
+   */
+  private cleanupOldCacheEntries(): void {
+    const now = Date.now();
+    const entriesToRemove: string[] = [];
+    
+    for (const [key, timestamp] of this.cacheTimestamps.entries()) {
+      if ((now - timestamp) > this.cacheExpiry) {
+        entriesToRemove.push(key);
+      }
+    }
+    
+    // 如果沒有過期項目，移除最舊的項目
+    if (entriesToRemove.length === 0) {
+      const sortedEntries = Array.from(this.cacheTimestamps.entries())
+        .sort(([,a], [,b]) => a - b);
+      
+      const removeCount = Math.floor(this.maxCacheSize * 0.1); // 移除 10% 最舊的項目
+      for (let i = 0; i < removeCount && i < sortedEntries.length; i++) {
+        entriesToRemove.push(sortedEntries[i][0]);
+      }
+    }
+    
+    // 清理項目
+    for (const key of entriesToRemove) {
+      this.scanCache.delete(key);
+      this.cacheTimestamps.delete(key);
+    }
+    
+    if (entriesToRemove.length > 0) {
+      console.log(`[LocalScan] 清理了 ${entriesToRemove.length} 個過期快取項目`);
+    }
+  }
+
+  /**
+   * 清除所有快取
+   */
+  clearCache(): void {
+    this.scanCache.clear();
+    this.cacheTimestamps.clear();
+    this.versionComparisonCache.clear();
+    this.versionCacheTimestamps.clear();
+    console.log('[LocalScan] 已清除所有快取');
+  }
+
+  /**
+   * 快取版本比較結果
+   */
+  private checkVersionWithCache(
+    packageVersion: string,
+    affectedVersions: string[],
+    fixedVersion?: string
+  ): boolean {
+    const cacheKey = `${packageVersion}:${JSON.stringify(affectedVersions)}:${fixedVersion || 'none'}`;
+    
+    // 檢查快取
+    if (this.isVersionCacheValid(cacheKey)) {
+      const cachedResult = this.versionComparisonCache.get(cacheKey);
+      if (cachedResult !== undefined) {
+        this.scanMetrics.versionCacheHits++;
+        return cachedResult;
+      }
+    }
+
+    // 執行實際比較
+    this.scanMetrics.versionCacheMisses++;
+    const result = isVulnerabilityFixed(packageVersion, affectedVersions, fixedVersion);
+    
+    // 更新快取
+    this.updateVersionCache(cacheKey, result);
+    
+    return result;
+  }
+
+  /**
+   * 檢查版本比較快取是否有效
+   */
+  private isVersionCacheValid(cacheKey: string): boolean {
+    if (!this.versionComparisonCache.has(cacheKey)) return false;
+    
+    const timestamp = this.versionCacheTimestamps.get(cacheKey);
+    if (!timestamp) return false;
+    
+    const now = Date.now();
+    return (now - timestamp) < this.versionCacheExpiry;
+  }
+
+  /**
+   * 更新版本比較快取
+   */
+  private updateVersionCache(cacheKey: string, result: boolean): void {
+    // 如果快取已滿，清理最舊的項目
+    if (this.versionComparisonCache.size >= this.maxVersionCacheSize) {
+      this.cleanupOldVersionCacheEntries();
+    }
+
+    this.versionComparisonCache.set(cacheKey, result);
+    this.versionCacheTimestamps.set(cacheKey, Date.now());
+  }
+
+  /**
+   * 清理過期的版本比較快取項目
+   */
+  private cleanupOldVersionCacheEntries(): void {
+    const now = Date.now();
+    const entriesToRemove: string[] = [];
+    
+    for (const [key, timestamp] of this.versionCacheTimestamps.entries()) {
+      if ((now - timestamp) > this.versionCacheExpiry) {
+        entriesToRemove.push(key);
+      }
+    }
+    
+    // 如果沒有過期項目，移除最舊的項目
+    if (entriesToRemove.length === 0) {
+      const sortedEntries = Array.from(this.versionCacheTimestamps.entries())
+        .sort(([,a], [,b]) => a - b);
+      
+      const removeCount = Math.floor(this.maxVersionCacheSize * 0.2); // 移除 20% 最舊的項目
+      for (let i = 0; i < removeCount && i < sortedEntries.length; i++) {
+        entriesToRemove.push(sortedEntries[i][0]);
+      }
+    }
+    
+    // 清理項目
+    for (const key of entriesToRemove) {
+      this.versionComparisonCache.delete(key);
+      this.versionCacheTimestamps.delete(key);
+    }
+    
+    if (entriesToRemove.length > 0) {
+      console.log(`[LocalScan] 清理了 ${entriesToRemove.length} 個過期版本比較快取項目`);
+    }
   }
 
   /**
@@ -76,7 +299,7 @@ export class LocalScanService {
   }
 
   /**
-   * 批次掃描多個套件
+   * 批次掃描多個套件（優化版本 - 支援並行處理和快取）
    */
   scanMultiplePackages(packages: PackageInfo[]): Observable<{
     packageName: string;
@@ -84,55 +307,117 @@ export class LocalScanService {
   }[]> {
     const results: { packageName: string; vulnerabilities: Vulnerability[] }[] = [];
     const total = packages.length;
-    let processed = 0;
 
     return new Observable(observer => {
       // 更新初始進度
-      this.updateScanProgress(0, total, '準備開始掃描...');
+      this.updateScanProgress(0, total, '準備開始並行掃描...');
 
-      const scanPackage = (index: number) => {
-        if (index >= packages.length) {
+      // 優化：使用並行掃描取代序列掃描
+      this.scanMultiplePackagesOptimized(packages).subscribe({
+        next: (batchResults) => {
+          results.push(...batchResults);
           observer.next(results);
           observer.complete();
-          return;
+        },
+        error: (error) => {
+          console.error('批次掃描失敗:', error);
+          observer.error(error);
         }
+      });
+    });
+  }
 
-        const pkg = packages[index];
+  /**
+   * 優化的並行掃描實作
+   */
+  private scanMultiplePackagesOptimized(packages: PackageInfo[]): Observable<{
+    packageName: string;
+    vulnerabilities: Vulnerability[];
+  }[]> {
+    return new Observable(observer => {
+      const batchSize = 8; // 並行批次大小，避免過度並行造成資源競爭
+      const batches: PackageInfo[][] = [];
+      
+      // 將套件分組為批次
+      for (let i = 0; i < packages.length; i += batchSize) {
+        batches.push(packages.slice(i, i + batchSize));
+      }
+
+      console.log(`[LocalScan] 將 ${packages.length} 個套件分為 ${batches.length} 個批次進行並行掃描`);
+      this.scanMetrics.parallelBatches = batches.length;
+
+      // 依序處理每個批次（批次內並行，批次間序列）
+      this.processBatchesSequentially(batches, 0, []).subscribe({
+        next: (results) => {
+          observer.next(results);
+          observer.complete();
+        },
+        error: (error) => observer.error(error)
+      });
+    });
+  }
+
+  /**
+   * 依序處理批次（批次內並行處理）
+   */
+  private processBatchesSequentially(
+    batches: PackageInfo[][],
+    batchIndex: number,
+    accumulatedResults: { packageName: string; vulnerabilities: Vulnerability[] }[]
+  ): Observable<{ packageName: string; vulnerabilities: Vulnerability[] }[]> {
+    return new Observable(observer => {
+      if (batchIndex >= batches.length) {
+        observer.next(accumulatedResults);
+        observer.complete();
+        return;
+      }
+
+      const currentBatch = batches[batchIndex];
+      const startIndex = batchIndex * 8;
+      
+      console.log(`[LocalScan] 處理批次 ${batchIndex + 1}/${batches.length}，包含 ${currentBatch.length} 個套件`);
+
+      // 更新進度
+      this.updateScanProgress(
+        startIndex, 
+        batches.length * 8, 
+        `批次 ${batchIndex + 1}/${batches.length}：並行掃描 ${currentBatch.length} 個套件`
+      );
+
+      // 批次內並行處理
+      const scanObservables = currentBatch.map(pkg => {
         const packageKey = pkg.packageKey || `${pkg.name}@${pkg.version}`;
-        
-        // 更新進度
-        this.updateScanProgress(
-          index, 
-          total, 
-          `正在掃描: ${pkg.name}`
-        );
-
-        this.scanPackage(pkg.name, pkg.version).subscribe({
-          next: (vulnerabilities) => {
-            results.push({
-              packageName: packageKey,
-              vulnerabilities
-            });
-            
-            processed++;
-            
-            // 立即處理下一個套件（本地掃描無需延遲）
-            scanPackage(index + 1);
-          },
-          error: (error) => {
+        return this.scanPackageWithCache(pkg.name, pkg.version).pipe(
+          map(vulnerabilities => ({
+            packageName: packageKey,
+            vulnerabilities
+          })),
+          catchError(error => {
             console.error(`掃描 ${pkg.name} 失敗:`, error);
-            results.push({
+            return [{
               packageName: packageKey,
               vulnerabilities: []
-            });
-            
-            processed++;
-            scanPackage(index + 1);
-          }
-        });
-      };
+            }];
+          })
+        );
+      });
 
-      scanPackage(0);
+      // 等待當前批次完成
+      forkJoin(scanObservables).subscribe({
+        next: (batchResults) => {
+          const newAccumulatedResults = [...accumulatedResults, ...batchResults];
+          
+          // 處理下一個批次
+          this.processBatchesSequentially(batches, batchIndex + 1, newAccumulatedResults).subscribe({
+            next: (finalResults) => observer.next(finalResults),
+            error: (error) => observer.error(error)
+          });
+        },
+        error: (error) => {
+          console.error(`批次 ${batchIndex + 1} 處理失敗:`, error);
+          observer.error(error);
+        }
+      });
     });
   }
 
@@ -325,6 +610,7 @@ export class LocalScanService {
     return this.syncService.getSyncStatus();
   }
 
+
   /**
    * 轉換查詢結果為內部格式（與 API 掃描保持一致）
    * 加入版本比較邏輯，過濾已修復的漏洞
@@ -345,10 +631,10 @@ export class LocalScanService {
       matchReason: result.matchReason
     } as Vulnerability & { matchReason: string }));
 
-    // 如果提供了套件版本，過濾已修復的漏洞
+    // 如果提供了套件版本，過濾已修復的漏洞（使用快取優化）
     if (packageVersion) {
       return vulnerabilities.filter(vuln => {
-        const isFixed = isVulnerabilityFixed(
+        const isFixed = this.checkVersionWithCache(
           packageVersion,
           vuln.affectedVersions,
           vuln.fixedVersion
@@ -413,6 +699,43 @@ export class LocalScanService {
         return { localOnly, apiOnly, common, accuracy };
       })
     );
+  }
+
+  /**
+   * 取得效能統計資訊
+   */
+  getPerformanceMetrics() {
+    return {
+      ...this.scanMetrics,
+      cacheHitRate: this.scanMetrics.totalScans > 0 ? 
+        (this.scanMetrics.cacheHits / this.scanMetrics.totalScans * 100).toFixed(2) + '%' : '0%',
+      versionCacheHitRate: (this.scanMetrics.versionCacheHits + this.scanMetrics.versionCacheMisses) > 0 ?
+        (this.scanMetrics.versionCacheHits / (this.scanMetrics.versionCacheHits + this.scanMetrics.versionCacheMisses) * 100).toFixed(2) + '%' : '0%',
+      cacheStatus: {
+        scanCacheSize: this.scanCache.size,
+        maxScanCacheSize: this.maxCacheSize,
+        versionCacheSize: this.versionComparisonCache.size,
+        maxVersionCacheSize: this.maxVersionCacheSize,
+      }
+    };
+  }
+
+  /**
+   * 重置效能統計
+   */
+  resetPerformanceMetrics(): void {
+    this.scanMetrics = {
+      totalScans: 0,
+      cacheHits: 0,
+      cacheMisses: 0,
+      versionCacheHits: 0,
+      versionCacheMisses: 0,
+      parallelBatches: 0,
+      totalScanTime: 0,
+      averageScanTime: 0,
+      lastScanTime: 0,
+    };
+    console.log('[LocalScan] 效能統計已重置');
   }
 
   /**
@@ -488,3 +811,80 @@ export class LocalScanService {
     );
   }
 }
+
+// 測試用
+function testLocalScan() {
+  const mockDatabaseService = {
+    queryPackageVulnerabilities: (query: any) => {
+      console.log('Mock DB 查詢:', query);
+      return new Observable(obs => {
+        setTimeout(() => {
+          if (query.packageName === 'react') {
+            obs.next([
+              { cveId: 'CVE-2023-1234', description: 'XSS in React', severity: 'HIGH', cvssScore: 7.5, affectedVersions: ['<18.0.0'], fixedVersion: '18.0.0' },
+              { cveId: 'CVE-2023-5678', description: 'DoS in React', severity: 'MEDIUM', cvssScore: 5.3, affectedVersions: ['<17.0.2'], fixedVersion: '17.0.2' }
+            ]);
+          } else {
+            obs.next([]);
+          }
+          obs.complete();
+        }, 500);
+      });
+    },
+    isReady: () => new Observable(obs => { obs.next(true); obs.complete(); }),
+    getDatabaseStats: () => new Observable(obs => { obs.next({ totalCveCount: 1000, totalCpeCount: 2000 }); obs.complete(); })
+  } as any;
+
+  const mockOptimizedQueryService = {
+    queryPackageVulnerabilitiesOptimized: (query: any) => {
+      console.log('Mock Optimized Query:', query);
+      return new Observable(obs => {
+        setTimeout(() => {
+          if (query.packageName === 'react') {
+            obs.next([
+              { cveId: 'CVE-2023-1234', description: 'XSS in React', severity: 'HIGH', cvssScore: 7.5, affectedVersions: ['<18.0.0'], fixedVersion: '18.0.0', matchReason: 'exact' },
+              { cveId: 'CVE-2023-5678', description: 'DoS in React', severity: 'MEDIUM', cvssScore: 5.3, affectedVersions: ['<17.0.2'], fixedVersion: '17.0.2', matchReason: 'exact' }
+            ]);
+          } else {
+            obs.next([]);
+          }
+          obs.complete();
+        }, 200);
+      });
+    }
+  } as any;
+
+  const mockSyncService = {
+    getDatabaseStats: () => new Observable(obs => { obs.next({ totalCveCount: 1000, totalCpeCount: 2000, lastSyncTime: new Date() }); obs.complete(); }),
+    forceSyncNow: () => new Observable(obs => { obs.next({ status: 'completed', message: 'Sync successful' }); obs.complete(); }),
+    getSyncStatus: () => new Observable(obs => { obs.next({ status: 'idle', lastSyncTime: new Date() }); obs.complete(); })
+  } as any;
+
+  const scanService = new LocalScanService(mockDatabaseService, mockOptimizedQueryService, mockSyncService);
+
+  // 測試單一套件掃描
+  scanService.scanPackage('react', '16.8.0').subscribe(results => {
+    console.log('React 16.8.0 掃描結果:', results);
+  });
+
+  // 測試批次掃描
+  const packagesToScan: PackageInfo[] = [
+    { name: 'react', version: '17.0.1', type: 'dependency' },
+    { name: 'angular', version: '12.0.0', type: 'dependency' }
+  ];
+  scanService.scanMultiplePackages(packagesToScan).subscribe(results => {
+    console.log('批次掃描結果:', results);
+  });
+
+  // 測試進階掃描
+  scanService.advancedScanPackage('react', '17.0.1').subscribe(results => {
+    console.log('進階掃描結果:', results);
+  });
+
+  // 測試風險評估
+  scanService.getPackageRiskAssessment('react', '16.8.0').subscribe(assessment => {
+    console.log('React 16.8.0 風險評估:', assessment);
+  });
+}
+
+// testLocalScan();

@@ -14,6 +14,11 @@ export class OptimizedQueryService {
   private readonly CVE_STORE = 'cve';
   private db: IDBDatabase | null = null;
 
+  // 批次查詢快取
+  private readonly batchQueryCache = new Map<string, VulnerabilityQueryResult[]>();
+  private readonly cacheExpiry = 5 * 60 * 1000; // 5 分鐘
+  private readonly cacheTimestamps = new Map<string, number>();
+
   constructor() {
     this.initDatabase();
   }
@@ -32,6 +37,229 @@ export class OptimizedQueryService {
       
       request.onerror = () => reject(request.error);
     });
+  }
+
+  /**
+   * 批次查詢多個套件漏洞（優化版本）
+   */
+  batchQueryPackageVulnerabilities(queries: PackageVulnerabilityQuery[]): Observable<Map<string, VulnerabilityQueryResult[]>> {
+    return new Observable(observer => {
+      const executeQueries = async () => {
+        try {
+          if (!this.db) {
+            await this.initDatabase();
+          }
+
+          if (!this.db) {
+            observer.error(new Error('資料庫尚未準備好'));
+            return;
+          }
+
+          const results = new Map<string, VulnerabilityQueryResult[]>();
+          const cacheHits = new Set<string>();
+          const cacheMisses: PackageVulnerabilityQuery[] = [];
+
+          // 檢查快取
+          for (const query of queries) {
+            const cacheKey = `${query.packageName}@${query.version || 'latest'}:${query.searchType}`;
+            if (this.isBatchCacheValid(cacheKey)) {
+              const cachedResult = this.batchQueryCache.get(cacheKey);
+              if (cachedResult) {
+                results.set(cacheKey, cachedResult);
+                cacheHits.add(cacheKey);
+              }
+            } else {
+              cacheMisses.push(query);
+            }
+          }
+
+          console.log(`[OptimizedQuery] 批次查詢：${cacheHits.size} 個快取命中，${cacheMisses.length} 個需要查詢`);
+
+          // 如果所有查詢都有快取，直接返回
+          if (cacheMisses.length === 0) {
+            observer.next(results);
+            observer.complete();
+            return;
+          }
+
+          // 執行未快取的查詢
+          await this.executeBatchQueries(cacheMisses, results);
+          
+          observer.next(results);
+          observer.complete();
+
+        } catch (error) {
+          observer.error(error);
+        }
+      };
+
+      executeQueries();
+    });
+  }
+
+  /**
+   * 執行批次查詢
+   */
+  private async executeBatchQueries(
+    queries: PackageVulnerabilityQuery[], 
+    results: Map<string, VulnerabilityQueryResult[]>
+  ): Promise<void> {
+    if (!this.db) return;
+
+    const transaction = this.db.transaction([this.CVE_STORE], 'readonly');
+    const store = transaction.objectStore(this.CVE_STORE);
+    
+    return new Promise((resolve, reject) => {
+      const queryResults = new Map<string, VulnerabilityQueryResult[]>();
+      
+      // 初始化所有查詢結果
+      for (const query of queries) {
+        const cacheKey = `${query.packageName}@${query.version || 'latest'}:${query.searchType}`;
+        queryResults.set(cacheKey, []);
+      }
+
+      const request = store.openCursor();
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest).result;
+        if (!cursor) {
+          // 完成時更新快取和結果
+          for (const [cacheKey, queryResult] of queryResults) {
+            results.set(cacheKey, queryResult);
+            this.updateBatchCache(cacheKey, queryResult);
+          }
+          resolve();
+          return;
+        }
+
+        const record = cursor.value;
+        
+        // 對每個查詢檢查當前記錄
+        for (const query of queries) {
+          const cacheKey = `${query.packageName}@${query.version || 'latest'}:${query.searchType}`;
+          const matchResults = this.checkRecordForQuery(record, query);
+          
+          if (matchResults.length > 0) {
+            const existingResults = queryResults.get(cacheKey) || [];
+            queryResults.set(cacheKey, [...existingResults, ...matchResults]);
+          }
+        }
+
+        cursor.continue();
+      };
+
+      request.onerror = () => reject(request.error);
+      transaction.onerror = () => reject(transaction.error);
+    });
+  }
+
+  /**
+   * 檢查記錄是否符合查詢條件
+   */
+  private checkRecordForQuery(record: any, query: PackageVulnerabilityQuery): VulnerabilityQueryResult[] {
+    const results: VulnerabilityQueryResult[] = [];
+
+    if (this.isOptimizedRecord(record)) {
+      const optimizedRecord = record as OptimizedCveRecord;
+      
+      for (const productInfo of optimizedRecord.optimizedProductInfo) {
+        let isMatch = false;
+        let matchType = '';
+
+        switch (query.searchType) {
+          case 'exact':
+            if (this.isProductMatch(productInfo, query.packageName, 'exact')) {
+              isMatch = true;
+              matchType = 'exact_match';
+            }
+            break;
+          case 'fuzzy':
+            if (this.isProductMatch(productInfo, query.packageName, 'fuzzy')) {
+              isMatch = true;
+              matchType = 'fuzzy_match';
+            }
+            break;
+          case 'cpe':
+            if (productInfo.cpeInfo && this.isCpeMatch(productInfo.cpeInfo.cpeName, query.packageName)) {
+              isMatch = true;
+              matchType = 'cpe_match';
+            }
+            break;
+          default:
+            // 綜合搜尋
+            if (this.isProductMatch(productInfo, query.packageName, 'exact')) {
+              isMatch = true;
+              matchType = 'exact_match';
+            } else if (productInfo.cpeInfo && this.isCpeMatch(productInfo.cpeInfo.cpeName, query.packageName)) {
+              isMatch = true;
+              matchType = 'cpe_match';
+            } else if (this.isProductMatch(productInfo, query.packageName, 'fuzzy')) {
+              isMatch = true;
+              matchType = 'fuzzy_match';
+            }
+        }
+
+        if (isMatch && this.isVersionAffectedOptimized(productInfo, query.version)) {
+          results.push(this.transformOptimizedCveToResult(optimizedRecord, productInfo, matchType));
+        }
+      }
+    } else {
+      // 處理舊格式記錄
+      this.handleLegacyRecordForBatch(record, query, results);
+    }
+
+    return results;
+  }
+
+  /**
+   * 處理舊格式記錄（批次版本）
+   */
+  private handleLegacyRecordForBatch(
+    record: any, 
+    query: PackageVulnerabilityQuery, 
+    results: VulnerabilityQueryResult[]
+  ): void {
+    if (record.affectedProducts && 
+        record.affectedProducts.includes(query.packageName)) {
+      
+      const description = record.descriptions?.find((d: any) => d.lang === 'en')?.value || '';
+      const fixedVersion = this.extractFixedVersionFromLegacy(record);
+
+      results.push({
+        cveId: record.id,
+        severity: record.severity,
+        cvssScore: record.cvssScore,
+        cvssVector: record.primaryCvssVector,
+        description,
+        publishedDate: record.published,
+        lastModifiedDate: record.lastModified,
+        references: record.references?.map((ref: any) => ref.url) || [],
+        affectedVersions: [],
+        fixedVersion,
+        matchReason: `legacy_batch_${query.searchType}`
+      });
+    }
+  }
+
+  /**
+   * 檢查批次快取是否有效
+   */
+  private isBatchCacheValid(cacheKey: string): boolean {
+    if (!this.batchQueryCache.has(cacheKey)) return false;
+    
+    const timestamp = this.cacheTimestamps.get(cacheKey);
+    if (!timestamp) return false;
+    
+    const now = Date.now();
+    return (now - timestamp) < this.cacheExpiry;
+  }
+
+  /**
+   * 更新批次查詢快取
+   */
+  private updateBatchCache(cacheKey: string, results: VulnerabilityQueryResult[]): void {
+    this.batchQueryCache.set(cacheKey, results);
+    this.cacheTimestamps.set(cacheKey, Date.now());
   }
 
   /**

@@ -151,7 +151,7 @@ export const DESCRIPTION_PARSING_PATTERNS = {
   // 常見的漏洞描述模式
   vulnerabilityPatterns: [
     // "vulnerability in package-name"
-    /(?:vulnerability|security issue|flaw|bug)\s+in\s+([\w\-@\/\.]+)/gi,
+    /(?:vulnerability|security issue|flaw|bug)\s+(?:was\s+)?(?:found\s+)?in\s+([\w\-@\/\.]+)/gi,
     
     // "package-name allows/enables/permits"
     /([\w\-@\/\.]+)\s+(?:allows?|enables?|permits?|causes?)/gi,
@@ -160,7 +160,29 @@ export const DESCRIPTION_PARSING_PATTERNS = {
     /issue\s+in\s+([\w\-@\/\.]+)/gi,
     
     // "package-name version constraint"
-    /([\w\-@\/\.]+)\s+(?:version\s+)?([<>=!]+\s*[\d\.]+[^\s,]*(?:\s*,\s*[<>=!]*\s*[\d\.]+[^\s,]*)*)/gi
+    /([\w\-@\/\.]+)\s+(?:version\s+)?([<>=!]+\s*[\d\.]+[^\s,]*(?:\s*,\s*[<>=!]*\s*[\d\.]+[^\s,]*)*)/gi,
+
+    // 新增模式：支援更複雜的套件名稱格式
+    // "author package-name up to version" - 如 "juliangruber brace-expansion up to 1.1.11"
+    /(?:in\s+)?(?:[\w\-\.]+\s+)?([\w\-@\/\.]+)\s+up\s+to\s+([\d\.\/,\s]+)/gi,
+    
+    // "In package-name before version" - 如 "In http-proxy-middleware before 2.0.9"
+    /In\s+([\w\-@\/\.]+)\s+before\s+([\d\.x\s,]+(?:and\s+[\d\.x\s]+before\s+[\d\.]+)?)/gi,
+    
+    // "package-name before version" - 如 "package-name before 2.0.9"
+    /([\w\-@\/\.]+)\s+before\s+([\d\.x\s,]+)/gi,
+    
+    // "package-name prior to version" - 如 "package-name prior to 2.0.9"
+    /([\w\-@\/\.]+)\s+prior\s+to\s+([\d\.x\s,]+)/gi,
+    
+    // "package-name through version" - 如 "package-name through 2.0.9"
+    /([\w\-@\/\.]+)\s+through\s+([\d\.x\s,]+)/gi,
+
+    // "upgrading to version" - 提取修復版本
+    /(?:upgrading?\s+to\s+version\s*|fixed\s+in\s+version\s*)([\d\.]+(?:[,\s]+[\d\.]+)*)/gi,
+    
+    // "versions up to and including" - 如 "versions up to and including 2.4.6"
+    /([\w\-@\/\.]+).*?versions?\s+up\s+to(?:\s+and\s+including)?\s+([\d\.]+)/gi,
   ],
 
   // 版本約束模式（更詳細）
@@ -172,7 +194,28 @@ export const DESCRIPTION_PARSING_PATTERNS = {
     /([<>=!]+)\s*([\d\.]+(?:[-+][a-zA-Z0-9\.]*)?)/g,
     
     // 版本範圍："1.0.0 - 2.0.0"
-    /([\d\.]+(?:[-+][a-zA-Z0-9\.]*)?)\s*(?:-|to|through)\s*([\d\.]+(?:[-+][a-zA-Z0-9\.]*)?)/g
+    /([\d\.]+(?:[-+][a-zA-Z0-9\.]*)?)\s*(?:-|to|through)\s*([\d\.]+(?:[-+][a-zA-Z0-9\.]*)?)/g,
+    
+    // 複雜版本格式："1.1.11/2.0.1/3.0.0/4.0.0" - 多個版本用斜線分隔
+    /([\d\.]+(?:\/[\d\.]+)*)/g,
+    
+    // "版本 x.y.z and a.b before c.d.e" 格式
+    /([\d\.x]+)\s+(?:and\s+)?([\d\.x]+)\s+before\s+([\d\.]+)/g,
+    
+    // 修復版本格式："version 1.1.12, 2.0.2, 3.0.1 and 4.0.1"
+    /version\s+([\d\.]+(?:\s*,\s*[\d\.]+)*(?:\s+and\s+[\d\.]+)?)/gi
+  ],
+
+  // 修復版本提取模式
+  fixVersionPatterns: [
+    // "Upgrading to version 1.1.12, 2.0.2, 3.0.1 and 4.0.1"
+    /(?:upgrading?\s+to\s+version\s*|fixed\s+in\s+version\s*|upgrade\s+to\s*)([\d\.]+(?:\s*,\s*[\d\.]+)*(?:\s+and\s+[\d\.]+)?)/gi,
+    
+    // "version 1.1.12, 2.0.2, 3.0.1 and 4.0.1 is able to address"
+    /version\s+([\d\.]+(?:\s*,\s*[\d\.]+)*(?:\s+and\s+[\d\.]+)?)\s+(?:is\s+able\s+to\s+address|addresses?|fixes?)/gi,
+    
+    // "fixed in 1.2.3"
+    /(?:fixed\s+in|patched\s+in|resolved\s+in)\s+([\d\.]+)/gi
   ],
 
   // 套件名稱清理模式

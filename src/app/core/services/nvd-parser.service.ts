@@ -819,49 +819,113 @@ export class NvdParserService {
     for (const desc of descriptions) {
       if (!desc.value) continue;
       
-      const text = desc.value.toLowerCase();
+      const text = desc.value;
+      const textLower = text.toLowerCase();
       
-      // 提取套件名稱和版本範圍 
-      // 匹配模式：套件名 allows/affects 版本範圍，例如：
-      // "form-data allows HTTP Parameter Pollution (HPP). This issue affects form-data: < 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3."
-      const packageMatches = text.match(/(?:affects|issue affects)\s+([\w\-]+):\s*([^.\n]+(?:\.\d+(?:\s*-\s*\d+\.\d+)*[^.\n]*)*)/i);
+      // 模式 1: 現有 affects 模式
+      // "This issue affects form-data: < 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3."
+      const affectsMatches = textLower.match(/(?:affects|issue affects)\s+([\w\-@\/]+):\s*(.+)/i);
       
-      if (packageMatches) {
-        const packageName = packageMatches[1];
-        const versionText = packageMatches[2];
+      if (affectsMatches) {
+        const packageName = affectsMatches[1];
+        let versionText = affectsMatches[2];
         
-        console.log(`CVE ${cveId}: 從描述中找到套件 ${packageName}，版本範圍: ${versionText}`);
+        // 清理版本文字，移除末尾的句點和空白
+        versionText = versionText.replace(/\.\s*$/, '').trim();
         
-        // 解析版本範圍，如 "< 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3"
+        console.log(`CVE ${cveId}: 從 affects 模式找到套件 ${packageName}，版本範圍: ${versionText}`);
+        
         const ranges = this.parseVersionRangeText(versionText, packageName);
         versionRanges.push(...ranges);
       }
       
-      // 另一種模式：直接在描述開頭提到套件和版本
-      // "Use of Insufficiently Random Values vulnerability in form-data"
-      const directMatches = text.match(/(?:vulnerability in|affects?)\s+(\w[\w\-]*)/i);
-      if (directMatches && !packageMatches) {
-        const packageName = directMatches[1];
+      // 模式 2: Prior to version 模式
+      // "Prior to version 5.2.1, webpack-dev-server users' source code may be stolen"
+      const priorToMatches = textLower.match(/prior to version\s+([\d\.]+(?:-[a-z0-9\.]+)?)[,\s].+?([\w\-@\/]+)/i);
+      
+      if (priorToMatches && !affectsMatches) {
+        const version = priorToMatches[1];
+        const packageName = priorToMatches[2];
         
-        // 嘗試在文本中尋找版本資訊
-        const versionInfoMatch = text.match(/([<>=!]+\s*[\d\.]+[^\s,]*(?:\s*,\s*[<>=!]*\s*[\d\.]+[^\s,]*)*)/);
-        if (versionInfoMatch) {
-          console.log(`CVE ${cveId}: 從描述中找到套件 ${packageName}，版本範圍: ${versionInfoMatch[1]}`);
-          const ranges = this.parseVersionRangeText(versionInfoMatch[1], packageName);
+        console.log(`CVE ${cveId}: 從 prior to 模式找到套件 ${packageName}，版本 < ${version}`);
+        
+        const ranges = this.parseVersionRangeText(`< ${version}`, packageName);
+        versionRanges.push(...ranges);
+      }
+      
+      // 模式 3: Version X contains a patch 模式
+      // "Version 5.2.1 contains a patch for the issue."
+      const patchVersionMatches = textLower.match(/version\s+([\d\.]+(?:-[a-z0-9\.]+)?)\s+contains a patch/i);
+      
+      if (patchVersionMatches && !affectsMatches && !priorToMatches) {
+        // 嘗試在前面的文字中找到套件名稱
+        const beforePatch = textLower.substring(0, textLower.indexOf('version'));
+        const packageNameMatch = beforePatch.match(/([\w\-@\/]+)(?:\s+allows|\s+users)/i);
+        
+        if (packageNameMatch) {
+          const packageName = packageNameMatch[1];
+          const version = patchVersionMatches[1];
+          
+          console.log(`CVE ${cveId}: 從 patch 模式找到套件 ${packageName}，版本 < ${version}`);
+          
+          const ranges = this.parseVersionRangeText(`< ${version}`, packageName);
           versionRanges.push(...ranges);
-        } else {
-          // 沒有明確版本資訊，建立一個通用的 range
-          versionRanges.push({
-            cpeName: `cpe:2.3:a:*:${packageName}:*:*:*:*:*:*:*:*`,
-            vulnerable: true,
-            vendor: '',
-            product: packageName,
-            ecosystem: 'npm', // 預設為 npm，可根據套件名稱調整
-            versionStartIncluding: undefined,
-            versionStartExcluding: undefined,
-            versionEndIncluding: undefined,
-            versionEndExcluding: undefined
-          });
+        }
+      }
+      
+      // 模式 4: 反引號套件名模式 (Babel 相關)
+      // "This problem has been fixed in `@babel/helpers` and `@babel/runtime` 7.26.10"
+      const backtickPackageMatches = text.match(/(?:fixed in|upgrading to)\s*`([@\w\-\/]+)`(?:\s*and\s*`([@\w\-\/]+)`)?\s+([\d\.]+(?:-[a-z0-9\.]+)?)/gi);
+      
+      if (backtickPackageMatches) {
+        for (const match of backtickPackageMatches) {
+          const detailMatch = match.match(/`([@\w\-\/]+)`(?:\s*and\s*`([@\w\-\/]+)`)?\s+([\d\.]+(?:-[a-z0-9\.]+)?)/i);
+          if (detailMatch) {
+            const package1 = detailMatch[1];
+            const package2 = detailMatch[2];
+            const version = detailMatch[3];
+            
+            // 為第一個套件創建範圍
+            console.log(`CVE ${cveId}: 從反引號模式找到套件 ${package1}，版本 < ${version}`);
+            const ranges1 = this.parseVersionRangeText(`< ${version}`, package1);
+            versionRanges.push(...ranges1);
+            
+            // 如果有第二個套件，也為其創建範圍
+            if (package2) {
+              console.log(`CVE ${cveId}: 從反引號模式找到套件 ${package2}，版本 < ${version}`);
+              const ranges2 = this.parseVersionRangeText(`< ${version}`, package2);
+              versionRanges.push(...ranges2);
+            }
+          }
+        }
+      }
+      
+      // 模式 5: 原有的直接模式 (作為最後的後備選項)
+      if (!affectsMatches && !priorToMatches && !patchVersionMatches && !backtickPackageMatches) {
+        const directMatches = textLower.match(/(?:vulnerability in|affects?)\s+([\w\-@\/]+)/i);
+        if (directMatches) {
+          const packageName = directMatches[1];
+          
+          // 嘗試在文本中尋找版本資訊
+          const versionInfoMatch = textLower.match(/([<>=!]+\s*[\d\.]+[^\s,]*(?:\s*,\s*[<>=!]*\s*[\d\.]+[^\s,]*)*)/);
+          if (versionInfoMatch) {
+            console.log(`CVE ${cveId}: 從直接模式找到套件 ${packageName}，版本範圍: ${versionInfoMatch[1]}`);
+            const ranges = this.parseVersionRangeText(versionInfoMatch[1], packageName);
+            versionRanges.push(...ranges);
+          } else {
+            // 沒有明確版本資訊，建立一個通用的 range
+            versionRanges.push({
+              cpeName: `cpe:2.3:a:*:${packageName}:*:*:*:*:*:*:*:*`,
+              vulnerable: true,
+              vendor: '',
+              product: packageName,
+              ecosystem: 'npm', // 預設為 npm，可根據套件名稱調整
+              versionStartIncluding: undefined,
+              versionStartExcluding: undefined,
+              versionEndIncluding: undefined,
+              versionEndExcluding: undefined
+            });
+          }
         }
       }
     }

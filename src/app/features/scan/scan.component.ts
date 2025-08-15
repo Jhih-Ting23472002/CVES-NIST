@@ -11,6 +11,8 @@ import { MatTableModule } from '@angular/material/table';
 import { MatDialogModule } from '@angular/material/dialog';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
 import { Subscription } from 'rxjs';
 
 import { NistApiService } from '../../core/services/nist-api.service';
@@ -43,7 +45,9 @@ import {
     MatDialogModule,
     MatSlideToggleModule,
     MatTooltipModule,
-    LoadingOverlayComponent
+    LoadingOverlayComponent,
+    MatFormFieldModule,
+    MatInputModule
   ],
   templateUrl: './scan.component.html',
   styleUrls: ['./scan.component.scss']
@@ -115,11 +119,7 @@ export class ScanComponent implements OnInit, OnDestroy {
   
   ngOnInit(): void {
     if (this.packages.length === 0) {
-      this.snackBar.open('沒有套件資料，請先上傳 package.json 檔案', '確定', {
-        duration: 5000
-      });
-      this.goBack();
-      return;
+      // Allow text scanning even if no packages are passed
     }
 
     // 檢查本地資料庫狀態
@@ -206,6 +206,7 @@ export class ScanComponent implements OnInit, OnDestroy {
       this.startForegroundScan();
     }
   }
+
 
   /**
    * 開始背景掃描
