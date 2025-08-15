@@ -2,6 +2,7 @@ import { Injectable, OnDestroy } from '@angular/core';
 import { Observable, Subject, BehaviorSubject } from 'rxjs';
 import { filter, take, map } from 'rxjs/operators';
 import { CveRecord, CpeRecord } from '../interfaces/nvd-database.interface';
+import { OptimizedCveRecord } from '../interfaces/optimized-storage.interface';
 import { DatabaseWorkerMessage, DatabaseWorkerResponse } from '../workers/database-worker';
 
 export interface WorkerProgress {
@@ -340,6 +341,145 @@ export class DatabaseWorkerService implements OnDestroy {
    */
   clearProgress(): void {
     this.progressSubject.next(null);
+  }
+
+  /**
+   * 優化 CVE 記錄格式
+   */
+  optimizeRecords(data: {
+    cveRecords: CveRecord[];
+    batchSize?: number;
+  }): Observable<{ optimizedRecords: OptimizedCveRecord[]; totalOptimized: number; totalOriginal: number }> {
+    if (!this.isWorkerAvailable()) {
+      throw new Error('Database Worker 不可用');
+    }
+
+    const requestId = `optimize_${++this.requestCounter}`;
+    
+    this.worker!.postMessage({
+      type: 'optimizeRecords',
+      data,
+      requestId
+    } as DatabaseWorkerMessage);
+
+    return this.responseSubject.pipe(
+      filter(response => response.requestId === requestId || response.type === 'complete'),
+      take(1),
+      filter(response => response.type === 'complete'),
+      map(response => response.data)
+    );
+  }
+
+  /**
+   * 批次優化並儲存 CVE 記錄
+   */
+  batchOptimizeAndStore(data: {
+    cveRecords: CveRecord[];
+    batchSize?: number;
+    optimizationBatchSize?: number;
+  }): Observable<{ totalOptimizedAndStored: number; message: string }> {
+    if (!this.isWorkerAvailable()) {
+      throw new Error('Database Worker 不可用');
+    }
+
+    const requestId = `batch_optimize_store_${++this.requestCounter}`;
+    
+    this.worker!.postMessage({
+      type: 'batchOptimizeAndStore',
+      data,
+      requestId
+    } as DatabaseWorkerMessage);
+
+    return this.responseSubject.pipe(
+      filter(response => response.requestId === requestId || response.type === 'complete'),
+      take(1),
+      filter(response => response.type === 'complete'),
+      map(response => response.data)
+    );
+  }
+
+  /**
+   * 智慧優化和更新
+   * 結合優化處理與資料庫更新的完整流程
+   */
+  smartOptimizeAndUpdate(options: {
+    cveRecords: CveRecord[];
+    currentVersion: string;
+    newVersion: string;
+    optimizationBatchSize?: number;
+    storageBatchSize?: number;
+  }): Observable<{
+    phase: 'analyze' | 'delete_old' | 'optimize' | 'store' | 'complete';
+    processed?: number;
+    total?: number;
+    message: string;
+    optimizedCount?: number;
+  }> {
+    return new Observable(observer => {
+      const { cveRecords, currentVersion, newVersion, optimizationBatchSize = 100, storageBatchSize = 1000 } = options;
+
+      observer.next({
+        phase: 'analyze',
+        message: `分析並準備優化 ${cveRecords.length} 筆 CVE 記錄`
+      });
+
+      // 步驟 1: 刪除舊版本資料（如果版本不同）
+      if (currentVersion !== newVersion) {
+        observer.next({
+          phase: 'delete_old',
+          message: `刪除舊版本資料: ${currentVersion}`
+        });
+
+        this.deleteByVersion(currentVersion).subscribe({
+          next: (deleteResult) => {
+            observer.next({
+              phase: 'delete_old',
+              message: `已刪除 ${deleteResult.deletedCount} 筆舊資料`
+            });
+
+            // 步驟 2: 優化並儲存新資料
+            this.performOptimizeAndStore(cveRecords, optimizationBatchSize, storageBatchSize, observer);
+          },
+          error: (error) => observer.error(error)
+        });
+      } else {
+        // 相同版本，直接優化並儲存
+        this.performOptimizeAndStore(cveRecords, optimizationBatchSize, storageBatchSize, observer);
+      }
+    });
+  }
+
+  /**
+   * 執行優化並儲存
+   */
+  private performOptimizeAndStore(
+    cveRecords: CveRecord[],
+    optimizationBatchSize: number,
+    storageBatchSize: number,
+    observer: any
+  ): void {
+    observer.next({
+      phase: 'optimize',
+      total: cveRecords.length,
+      processed: 0,
+      message: '開始優化 CVE 記錄格式'
+    });
+
+    this.batchOptimizeAndStore({
+      cveRecords,
+      optimizationBatchSize,
+      batchSize: storageBatchSize
+    }).subscribe({
+      next: (result) => {
+        observer.next({
+          phase: 'complete',
+          optimizedCount: result.totalOptimizedAndStored,
+          message: result.message
+        });
+        observer.complete();
+      },
+      error: (error) => observer.error(error)
+    });
   }
 
   /**

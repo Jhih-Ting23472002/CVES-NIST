@@ -1,9 +1,11 @@
 /// <reference lib="webworker" />
 
 import { CveRecord, CpeRecord } from '../interfaces/nvd-database.interface';
+import { OptimizedCveRecord } from '../interfaces/optimized-storage.interface';
+import { optimizeCveRecord, batchOptimizeCveRecords } from '../utils/cve-optimization.utils';
 
 export interface DatabaseWorkerMessage {
-  type: 'cleanupOldData' | 'bulkInsert' | 'bulkUpdate' | 'deleteByVersion' | 'compactDatabase';
+  type: 'cleanupOldData' | 'bulkInsert' | 'bulkUpdate' | 'deleteByVersion' | 'compactDatabase' | 'optimizeRecords' | 'batchOptimizeAndStore';
   data?: any;
   requestId?: string;
 }
@@ -378,6 +380,131 @@ async function processBulkInsert(
   }
 }
 
+/**
+ * 優化 CVE 記錄格式
+ */
+async function optimizeRecords(data: {
+  cveRecords: CveRecord[];
+  batchSize?: number;
+}): Promise<void> {
+  const { cveRecords, batchSize = 100 } = data;
+  const total = cveRecords.length;
+  let processed = 0;
+
+  postMessage({
+    type: 'progress',
+    data: {
+      phase: 'optimization_start',
+      processed: 0,
+      total,
+      message: `開始優化 ${total} 筆 CVE 記錄...`
+    }
+  } as DatabaseWorkerResponse);
+
+  const optimizedRecords: OptimizedCveRecord[] = [];
+  
+  // 分批處理以避免阻塞
+  for (let i = 0; i < cveRecords.length; i += batchSize) {
+    const batch = cveRecords.slice(i, i + batchSize);
+    
+    const batchOptimized = batchOptimizeCveRecords(batch, (batchProcessed, batchTotal, currentCveId) => {
+      const globalProcessed = processed + batchProcessed;
+      
+      // 每處理 10 個記錄回報一次進度
+      if (batchProcessed % 10 === 0 || batchProcessed === batchTotal) {
+        postMessage({
+          type: 'progress',
+          data: {
+            phase: 'optimization',
+            processed: globalProcessed,
+            total,
+            percentage: (globalProcessed / total) * 100,
+            message: `正在優化 CVE 記錄... (${globalProcessed}/${total}) - 當前: ${currentCveId}`,
+            currentCveId
+          }
+        } as DatabaseWorkerResponse);
+      }
+    });
+    
+    optimizedRecords.push(...batchOptimized);
+    processed += batch.length;
+    
+    // 讓出控制權，避免阻塞
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+
+  postMessage({
+    type: 'complete',
+    data: {
+      optimizedRecords,
+      totalOptimized: optimizedRecords.length,
+      totalOriginal: total
+    }
+  } as DatabaseWorkerResponse);
+}
+
+/**
+ * 批次優化並儲存到資料庫
+ */
+async function batchOptimizeAndStore(data: {
+  cveRecords: CveRecord[];
+  batchSize?: number;
+  optimizationBatchSize?: number;
+}): Promise<void> {
+  const { cveRecords, batchSize = 1000, optimizationBatchSize = 100 } = data;
+  const total = cveRecords.length;
+
+  postMessage({
+    type: 'progress',
+    data: {
+      phase: 'optimize_and_store_start',
+      processed: 0,
+      total,
+      message: `開始優化並儲存 ${total} 筆 CVE 記錄...`
+    }
+  } as DatabaseWorkerResponse);
+
+  await initDatabase();
+  if (!db) throw new Error('資料庫未初始化');
+
+  let totalProcessed = 0;
+
+  // 分批優化和儲存
+  for (let i = 0; i < cveRecords.length; i += optimizationBatchSize) {
+    const batch = cveRecords.slice(i, i + optimizationBatchSize);
+    
+    // 優化這批記錄
+    const optimizedBatch = batchOptimizeCveRecords(batch);
+    
+    // 儲存優化後的記錄到資料庫
+    await processBulkInsert('cve', optimizedBatch, batchSize, 'OptimizedCVE');
+    
+    totalProcessed += batch.length;
+    
+    postMessage({
+      type: 'progress',
+      data: {
+        phase: 'optimize_and_store',
+        processed: totalProcessed,
+        total,
+        percentage: (totalProcessed / total) * 100,
+        message: `已優化並儲存 ${totalProcessed}/${total} 筆記錄`
+      }
+    } as DatabaseWorkerResponse);
+    
+    // 讓出控制權
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+
+  postMessage({
+    type: 'complete',
+    data: {
+      totalOptimizedAndStored: totalProcessed,
+      message: `成功優化並儲存 ${totalProcessed} 筆 CVE 記錄`
+    }
+  } as DatabaseWorkerResponse);
+}
+
 // 監聽主執行緒訊息
 addEventListener('message', async ({ data }: MessageEvent<DatabaseWorkerMessage>) => {
   const { type, data: messageData, requestId } = data;
@@ -398,6 +525,14 @@ addEventListener('message', async ({ data }: MessageEvent<DatabaseWorkerMessage>
 
       case 'compactDatabase':
         await compactDatabase();
+        break;
+
+      case 'optimizeRecords':
+        await optimizeRecords(messageData);
+        break;
+
+      case 'batchOptimizeAndStore':
+        await batchOptimizeAndStore(messageData);
         break;
 
       default:

@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { Observable, BehaviorSubject, forkJoin } from 'rxjs';
 import { map, switchMap, catchError, tap } from 'rxjs/operators';
 import { NvdDatabaseService } from './nvd-database.service';
+import { OptimizedQueryService } from './optimized-query.service';
 import { NvdSyncService } from './nvd-sync.service';
 import { 
   PackageInfo, 
@@ -27,6 +28,7 @@ export class LocalScanService {
 
   constructor(
     private databaseService: NvdDatabaseService,
+    private optimizedQueryService: OptimizedQueryService,
     private syncService: NvdSyncService
   ) {}
 
@@ -38,7 +40,7 @@ export class LocalScanService {
   }
 
   /**
-   * 掃描單一套件漏洞
+   * 掃描單一套件漏洞（支援優化格式和舊格式）
    */
   scanPackage(packageName: string, version?: string): Observable<Vulnerability[]> {
     const query: PackageVulnerabilityQuery = {
@@ -47,12 +49,28 @@ export class LocalScanService {
       searchType: 'exact' // 預設使用精確搜尋
     };
 
-    return this.databaseService.queryPackageVulnerabilities(query).pipe(
-      map(results => this.transformQueryResults(results, version)),
+    console.log(`[LocalScan] 開始掃描套件: ${packageName}@${version || 'latest'}`);
+
+    // 優先使用優化查詢服務
+    return this.optimizedQueryService.queryPackageVulnerabilitiesOptimized(query).pipe(
+      map(results => {
+        console.log(`[LocalScan] 優化查詢找到 ${results.length} 個結果`);
+        return this.transformQueryResults(results, version);
+      }),
       catchError(error => {
-        console.error(`掃描套件 ${packageName} 時發生錯誤:`, error);
-        // 如果本地掃描失敗，可以選擇回退到 API 掃描
-        return [];
+        console.warn(`[LocalScan] 優化查詢失敗，回退到傳統查詢:`, error);
+        
+        // 回退到傳統查詢服務
+        return this.databaseService.queryPackageVulnerabilities(query).pipe(
+          map(results => {
+            console.log(`[LocalScan] 傳統查詢找到 ${results.length} 個結果`);
+            return this.transformQueryResults(results, version);
+          }),
+          catchError(fallbackError => {
+            console.error(`[LocalScan] 掃描套件 ${packageName} 失敗:`, fallbackError);
+            return [];
+          })
+        );
       })
     );
   }
@@ -191,7 +209,7 @@ export class LocalScanService {
   }
 
   /**
-   * 進階掃描（使用多種搜尋策略）
+   * 進階掃描（使用多種搜尋策略，支援優化格式）
    */
   advancedScanPackage(packageName: string, version?: string): Observable<Vulnerability[]> {
     const queries: PackageVulnerabilityQuery[] = [
@@ -200,28 +218,59 @@ export class LocalScanService {
       { packageName, version, searchType: 'cpe' }
     ];
 
-    const queryObservables = queries.map(query =>
-      this.databaseService.queryPackageVulnerabilities(query).pipe(
-        catchError(() => []) // 如果某個查詢失敗，回傳空陣列
+    console.log(`[LocalScan] 開始進階掃描套件: ${packageName}@${version || 'latest'}`);
+
+    // 優先使用優化查詢服務進行多策略搜尋
+    const optimizedQueryObservables = queries.map(query =>
+      this.optimizedQueryService.queryPackageVulnerabilitiesOptimized(query).pipe(
+        catchError(error => {
+          console.warn(`[LocalScan] 優化查詢策略 ${query.searchType} 失敗:`, error);
+          // 回退到傳統查詢
+          return this.databaseService.queryPackageVulnerabilities(query).pipe(
+            catchError(() => [])
+          );
+        })
       )
     );
 
-    return forkJoin(queryObservables).pipe(
+    return forkJoin(optimizedQueryObservables).pipe(
       map(allResults => {
         // 合併所有搜尋結果，去重
         const combinedResults = new Map<string, VulnerabilityQueryResult>();
         
-        allResults.forEach(results => {
+        allResults.forEach((results, index) => {
+          console.log(`[LocalScan] 策略 ${queries[index].searchType} 找到 ${results.length} 個結果`);
           results.forEach(result => {
-            if (!combinedResults.has(result.cveId)) {
+            const existingResult = combinedResults.get(result.cveId);
+            if (!existingResult || this.shouldReplaceResult(existingResult, result)) {
               combinedResults.set(result.cveId, result);
             }
           });
         });
 
-        return this.transformQueryResults(Array.from(combinedResults.values()), version);
+        const finalResults = Array.from(combinedResults.values());
+        console.log(`[LocalScan] 進階掃描總共找到 ${finalResults.length} 個去重後的結果`);
+        
+        return this.transformQueryResults(finalResults, version);
       })
     );
+  }
+
+  /**
+   * 判斷是否應該替換現有結果（優先選擇信心分數更高的結果）
+   */
+  private shouldReplaceResult(existing: VulnerabilityQueryResult, newResult: VulnerabilityQueryResult): boolean {
+    // 優先選擇精確匹配
+    if (newResult.matchReason.includes('exact') && !existing.matchReason.includes('exact')) {
+      return true;
+    }
+    
+    // 優先選擇 CPE 匹配
+    if (newResult.matchReason.includes('cpe') && existing.matchReason.includes('fuzzy')) {
+      return true;
+    }
+    
+    return false;
   }
 
   /**
