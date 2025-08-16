@@ -56,7 +56,7 @@ async function cleanupOldData(options: {
   dataVersion?: string;
   batchSize?: number;
 }): Promise<void> {
-  const { keepDays = 30, dataVersion, batchSize = 1000 } = options;
+  const { keepDays = 6 * 365, dataVersion, batchSize = 1000 } = options; // 預設保留 6 年資料
   const cutoffTime = Date.now() - (keepDays * 24 * 60 * 60 * 1000);
 
   await initDatabase();

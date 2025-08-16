@@ -16,6 +16,7 @@ import { NvdSyncService, SyncStatus } from '../../core/services/nvd-sync.service
 import { LocalScanService } from '../../core/services/local-scan.service';
 import { DatabaseVersion } from '../../core/interfaces/nvd-database.interface';
 import { DatabaseWorkerService } from '../../core/services/database-worker.service';
+import { getDatabaseConfig } from '../../core/config/database.config';
 
 @Component({
   selector: 'app-database-management',
@@ -61,7 +62,7 @@ import { DatabaseWorkerService } from '../../core/services/database-worker.servi
               <mat-icon>download</mat-icon>
               <div class="info-content">
                 <h4>初始同步</h4>
-                <p>首次使用需下載近四年 NVD 資料，建立本地漏洞資料庫</p>
+                <p>首次使用需下載近{{getDatabaseConfigYears()}}年 NVD 資料，建立本地漏洞資料庫</p>
               </div>
             </div>
             <div class="info-item">
@@ -944,7 +945,7 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
     this.loadingProgress = 0;
     this.progressText = '';
     this.loadingTips = [
-      '初始同步需要下載近四年的 NVD 資料',
+      `初始同步需要下載近${getDatabaseConfig().downloadYearsRange}年的 NVD 資料`,
       '同步過程中請保持網路連接',
       '同步完成後即可使用本地掃描功能',
       '您可以在其他頁面繼續操作'
@@ -986,6 +987,13 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
     this.loadingProgress = 0;
     this.progressText = '';
     this.loadingTips = [];
+  }
+
+  /**
+   * 取得資料庫配置年限
+   */
+  getDatabaseConfigYears(): number {
+    return getDatabaseConfig().downloadYearsRange;
   }
 
   /**

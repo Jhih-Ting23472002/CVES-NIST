@@ -33,6 +33,7 @@ export const mockOptimizedCveRecord: OptimizedCveRecord = {
   dataVersion: '2023-01-01',
   publishedYear: 2023,
   syncTimestamp: Date.now(),
+  keywordSearchText: 'form-data vulnerability npm package',
   
   // 新的優化資訊
   optimizedProductInfo: [

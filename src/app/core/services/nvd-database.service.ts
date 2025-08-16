@@ -12,6 +12,7 @@ import {
 } from '../interfaces/nvd-database.interface';
 import { Vulnerability } from '../models/vulnerability.model';
 import { DatabaseWorkerService } from './database-worker.service';
+import { getDatabaseConfig, getYearsList } from '../config/database.config';
 
 @Injectable({
   providedIn: 'root'
@@ -1041,7 +1042,8 @@ export class NvdDatabaseService {
   private fallbackToExpectedYears(resolve: (years: number[]) => void): void {
     const currentYear = new Date().getFullYear();
     const expectedYears = [];
-    for (let i = 0; i < 4; i++) { // 近四年
+    const dbConfig = getDatabaseConfig();
+    for (let i = 0; i < dbConfig.downloadYearsRange; i++) { // 配置年限
       expectedYears.push(currentYear - i);
     }
     resolve(expectedYears);
@@ -1116,7 +1118,7 @@ export class NvdDatabaseService {
     newVersion: string;
     keepRecentDays?: number;
   }): Observable<BatchProcessProgress> {
-    const { cveRecords, cpeRecords, newVersion, keepRecentDays = 7 } = options;
+    const { cveRecords, cpeRecords, newVersion, keepRecentDays = getDatabaseConfig().dataCleanup.retentionYears * 365 } = options;
 
     return new Observable(observer => {
       // 檢查是否可用 Web Worker
@@ -1140,7 +1142,7 @@ export class NvdDatabaseService {
     },
     observer: any
   ): void {
-    const { cveRecords, cpeRecords, newVersion, keepRecentDays = 7 } = options;
+    const { cveRecords, cpeRecords, newVersion, keepRecentDays = getDatabaseConfig().dataCleanup.retentionYears * 365 } = options;
 
     // 步驟 1: 準備資料庫（清理舊資料）
     observer.next({
@@ -1218,7 +1220,7 @@ export class NvdDatabaseService {
     },
     observer: any
   ): void {
-    const { cveRecords, cpeRecords, newVersion, keepRecentDays = 7 } = options;
+    const { cveRecords, cpeRecords, newVersion, keepRecentDays = getDatabaseConfig().dataCleanup.retentionYears * 365 } = options;
 
     // 步驟 1: 清理過期資料
     observer.next({
@@ -1285,7 +1287,7 @@ export class NvdDatabaseService {
   /**
    * 主執行緒清理過期資料
    */
-  private async cleanupOldDataMainThread(keepDays: number): Promise<void> {
+  async cleanupOldDataMainThread(keepDays: number): Promise<void> {
     if (!this.db) throw new Error('資料庫尚未準備好');
 
     const cutoffTime = Date.now() - (keepDays * 24 * 60 * 60 * 1000);

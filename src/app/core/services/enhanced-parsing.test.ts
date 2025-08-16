@@ -184,8 +184,8 @@ describe('Enhanced Description Parsing Tests', () => {
       expect(ranges.length).toBeGreaterThan(1);
       
       // 應該有易受攻擊的版本和修復版本
-      const vulnerableRanges = ranges.filter(r => r.vulnerable === true);
-      const fixedRanges = ranges.filter(r => r.vulnerable === false);
+      const vulnerableRanges = ranges.filter((r: any) => r.vulnerable === true);
+      const fixedRanges = ranges.filter((r: any) => r.vulnerable === false);
       
       expect(vulnerableRanges.length).toBeGreaterThan(0);
       expect(fixedRanges.length).toBeGreaterThan(0);

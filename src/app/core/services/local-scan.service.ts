@@ -4,6 +4,7 @@ import { map, switchMap, catchError, tap } from 'rxjs/operators';
 import { NvdDatabaseService } from './nvd-database.service';
 import { OptimizedQueryService } from './optimized-query.service';
 import { NvdSyncService } from './nvd-sync.service';
+import { LocalScanOptimizerService } from './local-scan-optimizer.service';
 import { 
   PackageInfo, 
   Vulnerability, 
@@ -54,7 +55,8 @@ export class LocalScanService {
   constructor(
     private databaseService: NvdDatabaseService,
     private optimizedQueryService: OptimizedQueryService,
-    private syncService: NvdSyncService
+    private syncService: NvdSyncService,
+    private scanOptimizer: LocalScanOptimizerService
   ) {}
 
   /**
@@ -162,14 +164,18 @@ export class LocalScanService {
   }
 
   /**
-   * 清除所有快取
+   * 清除所有快取（包含優化器快取）
    */
   clearCache(): void {
     this.scanCache.clear();
     this.cacheTimestamps.clear();
     this.versionComparisonCache.clear();
     this.versionCacheTimestamps.clear();
-    console.log('[LocalScan] 已清除所有快取');
+    
+    // 清理優化器快取
+    this.scanOptimizer.clearCaches();
+    
+    console.log('[LocalScan] 已清除所有快取（包含超級優化引擎快取）');
   }
 
   /**
@@ -299,29 +305,51 @@ export class LocalScanService {
   }
 
   /**
-   * 批次掃描多個套件（優化版本 - 支援並行處理和快取）
+   * 批次掃描多個套件（超級優化版本 - 使用新的優化器）
    */
   scanMultiplePackages(packages: PackageInfo[]): Observable<{
     packageName: string;
     vulnerabilities: Vulnerability[];
   }[]> {
-    const results: { packageName: string; vulnerabilities: Vulnerability[] }[] = [];
     const total = packages.length;
+    console.log(`[LocalScan] 使用優化器掃描 ${total} 個套件`);
 
     return new Observable(observer => {
       // 更新初始進度
-      this.updateScanProgress(0, total, '準備開始並行掃描...');
+      this.updateScanProgress(0, total, '啟動超級優化掃描引擎...');
 
-      // 優化：使用並行掃描取代序列掃描
-      this.scanMultiplePackagesOptimized(packages).subscribe({
-        next: (batchResults) => {
-          results.push(...batchResults);
+      // 使用新的優化器進行批次掃描
+      this.scanOptimizer.optimizedBatchScan(packages).subscribe({
+        next: (optimizedResults) => {
+          // 轉換優化器結果為原有格式
+          const results = optimizedResults.map(result => ({
+            packageName: result.packageName,
+            vulnerabilities: result.vulnerabilities
+          }));
+
+          // 更新統計資訊
+          this.updateScanMetrics(optimizedResults);
+          
+          // 更新進度
+          this.updateScanProgress(total, total, '超級優化掃描完成！');
+          
           observer.next(results);
           observer.complete();
         },
         error: (error) => {
-          console.error('批次掃描失敗:', error);
-          observer.error(error);
+          console.error('[LocalScan] 優化掃描失敗，回退到傳統方法:', error);
+          
+          // 回退到原有的並行掃描方法
+          this.scanMultiplePackagesOptimized(packages).subscribe({
+            next: (fallbackResults) => {
+              observer.next(fallbackResults);
+              observer.complete();
+            },
+            error: (fallbackError) => {
+              console.error('回退掃描也失敗:', fallbackError);
+              observer.error(fallbackError);
+            }
+          });
         }
       });
     });
@@ -702,26 +730,81 @@ export class LocalScanService {
   }
 
   /**
-   * 取得效能統計資訊
+   * 更新掃描統計資訊（整合優化器統計）
+   */
+  private updateScanMetrics(optimizedResults: any[]): void {
+    // 更新基本統計
+    this.scanMetrics.totalScans += optimizedResults.length;
+    
+    // 計算快取命中和未命中
+    const cacheHits = optimizedResults.filter(r => r.cacheHit).length;
+    const cacheMisses = optimizedResults.length - cacheHits;
+    
+    this.scanMetrics.cacheHits += cacheHits;
+    this.scanMetrics.cacheMisses += cacheMisses;
+    
+    // 計算平均掃描時間
+    const totalQueryTime = optimizedResults.reduce((sum, r) => sum + r.queryTime, 0);
+    this.scanMetrics.totalScanTime += totalQueryTime;
+    this.scanMetrics.averageScanTime = this.scanMetrics.totalScanTime / this.scanMetrics.totalScans;
+    this.scanMetrics.lastScanTime = totalQueryTime;
+  }
+
+  /**
+   * 取得效能統計資訊（整合版）
    */
   getPerformanceMetrics() {
+    const optimizerMetrics = this.scanOptimizer.getOptimizationMetrics();
+    
     return {
+      // 基本統計
       ...this.scanMetrics,
       cacheHitRate: this.scanMetrics.totalScans > 0 ? 
         (this.scanMetrics.cacheHits / this.scanMetrics.totalScans * 100).toFixed(2) + '%' : '0%',
       versionCacheHitRate: (this.scanMetrics.versionCacheHits + this.scanMetrics.versionCacheMisses) > 0 ?
         (this.scanMetrics.versionCacheHits / (this.scanMetrics.versionCacheHits + this.scanMetrics.versionCacheMisses) * 100).toFixed(2) + '%' : '0%',
+      
+      // 快取狀態
       cacheStatus: {
         scanCacheSize: this.scanCache.size,
         maxScanCacheSize: this.maxCacheSize,
         versionCacheSize: this.versionComparisonCache.size,
         maxVersionCacheSize: this.maxVersionCacheSize,
+      },
+      
+      // 優化器統計
+      optimizerMetrics: {
+        ...optimizerMetrics,
+        description: '超級優化掃描引擎統計'
+      },
+      
+      // 效能改善指標
+      performanceImprovement: {
+        estimatedSpeedUp: this.calculateSpeedUpEstimate(optimizerMetrics),
+        cacheEfficiency: optimizerMetrics.cacheHitRate,
+        strategyDistribution: optimizerMetrics.strategiesUsage
       }
     };
   }
 
   /**
-   * 重置效能統計
+   * 計算速度提升估算
+   */
+  private calculateSpeedUpEstimate(optimizerMetrics: any): string {
+    const cacheHitRate = parseFloat(optimizerMetrics.cacheHitRate) || 0;
+    const avgQueryTime = optimizerMetrics.averageQueryTime || 0;
+    
+    if (avgQueryTime === 0) return '無法估算';
+    
+    // 假設快取查詢是原始查詢時間的 1/10
+    const estimatedOriginalTime = avgQueryTime / (1 - cacheHitRate * 0.9);
+    const speedUp = estimatedOriginalTime / avgQueryTime;
+    
+    return `約 ${speedUp.toFixed(1)}x 倍`;
+  }
+
+  /**
+   * 重置效能統計（包含優化器統計）
    */
   resetPerformanceMetrics(): void {
     this.scanMetrics = {
@@ -735,7 +818,81 @@ export class LocalScanService {
       averageScanTime: 0,
       lastScanTime: 0,
     };
-    console.log('[LocalScan] 效能統計已重置');
+    
+    // 重置優化器統計
+    this.scanOptimizer.resetMetrics();
+    
+    console.log('[LocalScan] 效能統計已重置（包含超級優化引擎統計）');
+  }
+
+  /**
+   * 預熱掃描快取（載入常用套件）
+   */
+  warmupScanCache(): Observable<void> {
+    const commonPackages = [
+      'react', 'angular', 'vue', 'lodash', 'express', 'webpack', 
+      'typescript', 'eslint', 'jest', 'babel', 'sass', 'postcss',
+      'axios', 'moment', 'chalk', 'commander', 'inquirer', 'yargs',
+      'rimraf', 'glob', 'mkdirp', 'semver', 'uuid', 'validator'
+    ];
+
+    console.log('[LocalScan] 開始預熱掃描快取...');
+    
+    return this.scanOptimizer.warmupCache(commonPackages).pipe(
+      tap(() => {
+        console.log('[LocalScan] 掃描快取預熱完成，已載入常用套件資訊');
+      })
+    );
+  }
+
+  /**
+   * 取得優化建議
+   */
+  getOptimizationRecommendations(): {
+    recommendation: string;
+    description: string;
+    priority: 'high' | 'medium' | 'low';
+  }[] {
+    const metrics = this.getPerformanceMetrics();
+    const recommendations = [];
+
+    // 檢查快取命中率
+    const cacheHitRate = parseFloat(metrics.cacheHitRate) || 0;
+    if (cacheHitRate < 50) {
+      recommendations.push({
+        recommendation: '建議執行快取預熱',
+        description: `目前快取命中率僅 ${metrics.cacheHitRate}，執行預熱可大幅提升後續掃描速度`,
+        priority: 'high' as const
+      });
+    }
+
+    // 檢查平均掃描時間
+    if (metrics.averageScanTime > 1000) {
+      recommendations.push({
+        recommendation: '考慮優化掃描策略',
+        description: `平均掃描時間 ${metrics.averageScanTime.toFixed(0)}ms 偏高，建議檢查索引使用情況`,
+        priority: 'medium' as const
+      });
+    }
+
+    // 檢查快取大小
+    if (metrics.cacheStatus.scanCacheSize > metrics.cacheStatus.maxScanCacheSize * 0.9) {
+      recommendations.push({
+        recommendation: '考慮增加快取大小',
+        description: '快取使用率超過 90%，考慮增加快取容量以提升效能',
+        priority: 'low' as const
+      });
+    }
+
+    if (recommendations.length === 0) {
+      recommendations.push({
+        recommendation: '效能表現良好',
+        description: '目前掃描效能處於最佳狀態，無需額外優化',
+        priority: 'low' as const
+      });
+    }
+
+    return recommendations;
   }
 
   /**
@@ -860,7 +1017,32 @@ function testLocalScan() {
     getSyncStatus: () => new Observable(obs => { obs.next({ status: 'idle', lastSyncTime: new Date() }); obs.complete(); })
   } as any;
 
-  const scanService = new LocalScanService(mockDatabaseService, mockOptimizedQueryService, mockSyncService);
+  const mockScanOptimizer = {
+    optimizedBatchScan: (packages: any[]) => new Observable(obs => {
+      const results = packages.map(pkg => ({
+        packageName: `${pkg.name}@${pkg.version}`,
+        vulnerabilities: [],
+        queryTime: 100,
+        cacheHit: false,
+        strategy: 'mock'
+      }));
+      obs.next(results);
+      obs.complete();
+    }),
+    getOptimizationMetrics: () => ({
+      totalQueries: 0,
+      cacheHits: 0,
+      cacheMisses: 0,
+      averageQueryTime: 0,
+      cacheHitRate: '0%',
+      strategiesUsage: {}
+    }),
+    clearCaches: () => {},
+    resetMetrics: () => {},
+    warmupCache: () => new Observable<void>(obs => { obs.next(undefined); obs.complete(); })
+  } as any;
+
+  const scanService = new LocalScanService(mockDatabaseService, mockOptimizedQueryService, mockSyncService, mockScanOptimizer);
 
   // 測試單一套件掃描
   scanService.scanPackage('react', '16.8.0').subscribe(results => {

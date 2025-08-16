@@ -4,6 +4,7 @@ import { switchMap, map, catchError, tap } from 'rxjs/operators';
 import { NvdDownloadService } from './nvd-download.service';
 import { NvdParserService } from './nvd-parser.service';
 import { NvdDatabaseService } from './nvd-database.service';
+import { getDatabaseConfig } from '../config/database.config';
 import {
   CveRecord,
   CpeRecord,
@@ -33,7 +34,9 @@ export class NvdSyncService {
     message: '尚未開始同步'
   });
 
-  private readonly SYNC_INTERVAL = 24 * 60 * 60 * 1000; // 24小時
+  private get SYNC_INTERVAL() {
+    return getDatabaseConfig().sync.autoSyncIntervalHours * 60 * 60 * 1000;
+  }
   private syncTimer?: number;
 
   constructor(
@@ -52,7 +55,7 @@ export class NvdSyncService {
   }
 
   /**
-   * 執行初始資料同步（近四年完整資料）
+   * 執行初始資料同步（配置年限完整資料）
    */
   performInitialSync(): Observable<SyncStatus> {
     return new Observable(observer => {
@@ -60,7 +63,7 @@ export class NvdSyncService {
         isRunning: true,
         currentPhase: 'download',
         progress: null,
-        message: '開始下載近四年 NVD 資料...'
+        message: `開始下載近${getDatabaseConfig().downloadYearsRange}年 NVD 資料...`
       });
 
       const startTime = new Date();
@@ -518,13 +521,49 @@ export class NvdSyncService {
 
     const interval = customInterval || this.SYNC_INTERVAL;
     this.syncTimer = window.setTimeout(() => {
-      this.performIncrementalSync().subscribe({
-        next: () => console.log('自動增量同步完成'),
-        error: (error) => console.error('自動增量同步失敗:', error)
+      // 先執行清理過期資料，再執行增量同步
+      this.performScheduledCleanup().then(() => {
+        this.performIncrementalSync().subscribe({
+          next: () => console.log('自動增量同步完成'),
+          error: (error) => console.error('自動增量同步失敗:', error)
+        });
+      }).catch((error) => {
+        console.error('自動清理失敗:', error);
+        // 即使清理失敗，也繼續執行同步
+        this.performIncrementalSync().subscribe({
+          next: () => console.log('自動增量同步完成'),
+          error: (error) => console.error('自動增量同步失敗:', error)
+        });
       });
     }, interval);
 
     console.log(`已排程下次同步：${new Date(Date.now() + interval).toLocaleString()}`);
+  }
+
+  /**
+   * 執行排程的清理工作
+   */
+  private async performScheduledCleanup(): Promise<void> {
+    const config = getDatabaseConfig();
+    
+    if (!config.dataCleanup.enableAutoCleanup) {
+      return; // 如果未啟用自動清理，直接返回
+    }
+
+    try {
+      console.log('開始執行定期資料清理...');
+      
+      // 計算需要清理的資料
+      const retentionDays = config.dataCleanup.retentionYears * 365;
+      
+      // 使用資料庫服務執行清理
+      await this.databaseService.cleanupOldDataMainThread(retentionDays);
+      
+      console.log(`定期清理完成，保留最近 ${config.dataCleanup.retentionYears} 年的資料`);
+    } catch (error) {
+      console.error('定期清理失敗:', error);
+      throw error;
+    }
   }
 
   /**

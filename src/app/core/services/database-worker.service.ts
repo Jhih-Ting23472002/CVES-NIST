@@ -4,6 +4,7 @@ import { filter, take, map } from 'rxjs/operators';
 import { CveRecord, CpeRecord } from '../interfaces/nvd-database.interface';
 import { OptimizedCveRecord } from '../interfaces/optimized-storage.interface';
 import { DatabaseWorkerMessage, DatabaseWorkerResponse } from '../workers/database-worker';
+import { getDatabaseConfig } from '../config/database.config';
 
 export interface WorkerProgress {
   phase: string;
@@ -218,7 +219,7 @@ export class DatabaseWorkerService implements OnDestroy {
     }
 
     return new Observable(observer => {
-      const { newDataVersion, keepRecentDays = 7 } = options;
+      const { newDataVersion, keepRecentDays = getDatabaseConfig().dataCleanup.retentionYears * 365 } = options;
 
       // 步驟 1: 清理過期資料
       this.cleanupOldData({

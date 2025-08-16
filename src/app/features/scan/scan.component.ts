@@ -17,6 +17,7 @@ import { Subscription } from 'rxjs';
 
 import { NistApiService } from '../../core/services/nist-api.service';
 import { BackgroundScanService } from '../../core/services/background-scan.service';
+import { getDatabaseConfig } from '../../core/config/database.config';
 import { LoadingOverlayComponent } from '../../shared/components/loading-overlay.component';
 import { FileParserService } from '../../core/services/file-parser.service';
 import { LocalScanService } from '../../core/services/local-scan.service';
@@ -582,7 +583,7 @@ export class ScanComponent implements OnInit, OnDestroy {
     this.loadingMessage = '正在下載最新的漏洞資料庫，這可能需要幾分鐘時間...';
     this.loadingIcon = 'sync';
     this.loadingTips = [
-      '初始同步需要下載近四年的 NVD 資料',
+      `初始同步需要下載近${getDatabaseConfig().downloadYearsRange}年的 NVD 資料`,
       '同步過程中請保持網路連接',
       '同步完成後即可使用本地掃描功能'
     ];

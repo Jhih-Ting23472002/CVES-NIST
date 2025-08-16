@@ -8,14 +8,14 @@ import {
   BatchProcessProgress,
   IncrementalUpdate
 } from '../interfaces/nvd-database.interface';
+import { getDatabaseConfig, getYearsList } from '../config/database.config';
 
 @Injectable({
   providedIn: 'root'
 })
 export class NvdDownloadService {
   private readonly NVD_BASE_URL = 'https://nvd.nist.gov/feeds/json/cve/2.0';
-  private readonly CURRENT_YEAR = new Date().getFullYear();
-  private readonly MIN_YEAR = this.CURRENT_YEAR - 3; // 近四年
+  private readonly databaseConfig = getDatabaseConfig();
   
   private downloadProgress$ = new BehaviorSubject<BatchProcessProgress | null>(null);
   private downloadedData: Map<number, any> = new Map(); // 儲存下載的資料
@@ -30,10 +30,10 @@ export class NvdDownloadService {
   }
 
   /**
-   * 下載並解析近四年的 NVD 資料
+   * 下載並解析配置年限的 NVD 資料
    */
   downloadRecentYearsData(): Observable<BatchProcessProgress> {
-    const years = this.getRecentYears();
+    const years = getYearsList(this.databaseConfig);
     const totalFiles = years.length;
     let processedFiles = 0;
 
@@ -222,7 +222,7 @@ export class NvdDownloadService {
    * 取得資料檔案清單
    */
   getDataFileList(): NvdDataFile[] {
-    const years = this.getRecentYears();
+    const years = getYearsList(this.databaseConfig);
     return years.map(year => ({
       year,
       url: `${this.NVD_BASE_URL}/nvdcve-2.0-${year}.json.gz`,
@@ -280,14 +280,17 @@ export class NvdDownloadService {
   }
 
   /**
-   * 取得近四年的年份清單
+   * 取得配置的資料庫配置
    */
-  private getRecentYears(): number[] {
-    const years: number[] = [];
-    for (let year = this.MIN_YEAR; year <= this.CURRENT_YEAR; year++) {
-      years.push(year);
-    }
-    return years;
+  getDatabaseConfig() {
+    return this.databaseConfig;
+  }
+
+  /**
+   * 取得配置年限的年份清單
+   */
+  getConfiguredYears(): number[] {
+    return getYearsList(this.databaseConfig);
   }
 
   /**
@@ -342,7 +345,8 @@ export class NvdDownloadService {
    * 測試網路連線和 NVD 服務可用性
    */
   testConnection(): Observable<boolean> {
-    const testUrl = `${this.NVD_BASE_URL}/nvdcve-2.0-${this.CURRENT_YEAR}.meta`;
+    const currentYear = new Date().getFullYear();
+    const testUrl = `${this.NVD_BASE_URL}/nvdcve-2.0-${currentYear}.meta`;
     
     return this.http.head(testUrl).pipe(
       map(() => true),
