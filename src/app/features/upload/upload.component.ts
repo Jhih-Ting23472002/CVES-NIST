@@ -14,11 +14,14 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatRadioModule } from '@angular/material/radio';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatBadgeModule } from '@angular/material/badge';
+import { MatMenuModule } from '@angular/material/menu';
+import { MatDividerModule } from '@angular/material/divider';
 import { FormsModule } from '@angular/forms';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 
 import { FileParserService } from '../../core/services/file-parser.service';
 import { BackgroundScanService } from '../../core/services/background-scan.service';
+import { ReportExportService } from '../../core/services/report-export.service';
 import { PackageInfo, ValidationResult, ScanConfig, DEFAULT_SCAN_CONFIGS } from '../../core/models/vulnerability.model';
 
 @Component({
@@ -41,6 +44,8 @@ import { PackageInfo, ValidationResult, ScanConfig, DEFAULT_SCAN_CONFIGS } from 
     MatRadioModule,
     MatExpansionModule,
     MatBadgeModule,
+    MatMenuModule,
+    MatDividerModule,
     ScrollingModule
   ],
   templateUrl: './upload.component.html',
@@ -97,7 +102,8 @@ export class UploadComponent implements OnInit {
     private router: Router,
     private snackBar: MatSnackBar,
     private fileParserService: FileParserService,
-    public backgroundScanService: BackgroundScanService
+    public backgroundScanService: BackgroundScanService,
+    private reportExportService: ReportExportService
   ) {
     this.fileSelectionForm = this.fb.group({
       file: ['', Validators.required]
@@ -147,8 +153,8 @@ export class UploadComponent implements OnInit {
     // 檔案大小檢查 (10MB)
     const maxSize = 10 * 1024 * 1024;
     if (file.size > maxSize) {
-      this.snackBar.open('檔案大小超過 10MB 限制', '確定', {
-        duration: 5000,
+      this.snackBar.open('❌ 檔案太大了！請選擇小於 10MB 的檔案', '我知道了', {
+        duration: 6000,
         panelClass: ['error-snackbar']
       });
       return;
@@ -157,8 +163,8 @@ export class UploadComponent implements OnInit {
     // 檔案類型檢查
     const isValidFile = file.name === 'package.json' || file.name === 'package-lock.json';
     if (!isValidFile) {
-      this.snackBar.open('請選擇 package.json 或 package-lock.json 檔案', '確定', {
-        duration: 5000,
+      this.snackBar.open('⚠️ 請選擇正確的檔案：package.json 或 package-lock.json', '我知道了', {
+        duration: 6000,
         panelClass: ['error-snackbar']
       });
       return;
@@ -204,16 +210,16 @@ export class UploadComponent implements OnInit {
             }
           }, 500);
         } else {
-          this.snackBar.open('檔案驗證失敗，請檢查錯誤訊息', '確定', {
-            duration: 5000,
+          this.snackBar.open('❌ 檔案格式有問題，請檢查下方的錯誤訊息', '我知道了', {
+            duration: 6000,
             panelClass: ['error-snackbar']
           });
         }
       },
       error: (error) => {
         this.isValidating = false;
-        this.snackBar.open(`驗證失敗: ${error.message}`, '確定', {
-          duration: 5000,
+        this.snackBar.open(`❌ 檔案讀取失敗：${error.message}`, '我知道了', {
+          duration: 6000,
           panelClass: ['error-snackbar']
         });
       }
@@ -352,6 +358,16 @@ export class UploadComponent implements OnInit {
     return currentMode?.description || '';
   }
 
+  // 取得簡化的模式描述（為新手友善）
+  getSimplifiedModeDescription(mode: string): string {
+    const descriptions: { [key: string]: string } = {
+      'fast': '檢查主要套件，速度快',
+      'balanced': '檢查主要+開發套件',
+      'comprehensive': '檢查全部套件，最完整'
+    };
+    return descriptions[mode] || '';
+  }
+
   // 取得掃描統計資訊
   getScanStats(): string {
     if (this.allPackages.length === 0) return '';
@@ -370,6 +386,49 @@ export class UploadComponent implements OnInit {
   // 虛擬滾動 trackBy 函數，提升性能
   trackByPackageName(_index: number, item: PackageInfo): string {
     return item.name;
+  }
+
+  // SBOM 匯出功能
+  exportPackageListAsCycloneDX(): void {
+    if (this.packages.length === 0) {
+      this.snackBar.open('沒有套件可以匯出', '關閉', {
+        duration: 3000,
+        verticalPosition: 'top'
+      });
+      return;
+    }
+
+    // 不包含漏洞資訊，因為還沒掃描
+    this.reportExportService.exportAsCycloneDX(this.packages, [], new Date(), false);
+    
+    this.snackBar.open('CycloneDX SBOM 匯出成功', '關閉', {
+      duration: 3000,
+      verticalPosition: 'top'
+    });
+  }
+
+  exportPackageListAsSpdx(): void {
+    if (this.packages.length === 0) {
+      this.snackBar.open('沒有套件可以匯出', '關閉', {
+        duration: 3000,
+        verticalPosition: 'top'
+      });
+      return;
+    }
+
+    // 不包含漏洞資訊，因為還沒掃描
+    this.reportExportService.exportAsSpdx(this.packages, [], new Date(), false);
+    
+    this.snackBar.open('SPDX SBOM 匯出成功', '關閉', {
+      duration: 3000,
+      verticalPosition: 'top'
+    });
+  }
+
+
+  // 檢查是否可以匯出 SBOM
+  canExportSbom(): boolean {
+    return this.packages.length > 0;
   }
 
 }

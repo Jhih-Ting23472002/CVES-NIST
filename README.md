@@ -13,11 +13,13 @@ A comprehensive security vulnerability scanner for Node.js projects that analyze
 ### Features
 
 #### 🔍 **Vulnerability Scanning**
-- Real-time scanning of npm package dependencies
+- **Dual Scanning Modes**: API scanning and local database scanning
+- **Local Database**: Complete NVD database stored in IndexedDB for offline use
+- **Offline Support**: Scan packages without internet connection using local database
 - Integration with NIST National Vulnerability Database (NVD)
-- Support for both `package.json` and `package-lock.json` files
+- Support for `package.json` and `package-lock.json` files
 - CVSS scoring and severity classification (Critical, High, Medium, Low)
-- Automatic rate limiting and retry mechanisms for API reliability
+- Automated API rate limiting and retry mechanisms
 
 #### 🌙 **Background Scanning** ⭐ NEW
 - **Non-blocking scans**: Continue using other features while scanning runs in background
@@ -30,48 +32,49 @@ A comprehensive security vulnerability scanner for Node.js projects that analyze
 - **Automatic cleanup**: Tasks older than 24 hours are automatically removed
 - **Manual cleanup**: Instantly remove expired tasks with one click
 - **Task persistence**: All task states saved to local storage
-- **Real-time updates**: Task status updates across all browser tabs
-- **Intelligent filtering**: Configurable scan modes (fast, balanced, comprehensive)
+- **Real-time updates**: Task status updates automatically when scans complete
+- **Improved stability**: Fixed button positioning and layout stability issues
 
-#### 📊 **Comprehensive Reporting**
+#### 📊 **Enhanced Reporting** ⭐ IMPROVED
 - Interactive dashboard with vulnerability statistics
-- Real-time progress tracking during scans
+- **Sticky toolbar**: Report actions always accessible while scrolling
 - Visual charts showing risk distribution
-- Virtual scrolling for large datasets (performance optimized)
-- Package grouping with collapsible panels
+- Package and vulnerability tables with sorting and filtering
 - Detailed vulnerability information including:
   - CVE identifiers and descriptions
-  - CVSS scores and vectors
+  - CVSS scores and severity levels
   - Publication and modification dates
-  - Affected versions and fixes
-  - Reference links
+  - Affected versions and reference links
 
 #### 📁 **Multiple Export Formats**
 - **JSON**: Complete structured data with metadata
 - **CSV**: Spreadsheet-compatible format for analysis
+- **SBOM Formats**: CycloneDX and SPDX software bill of materials
+- **HTML Reports**: Comprehensive security reports with visual formatting
 - All exports include scan timestamps and comprehensive metadata
 
-#### 🎨 **User Interface**
-- Modern Material Design interface with Indigo-Pink theme
-- Responsive design for desktop and mobile
-- Color-coded severity indicators
-- Intuitive navigation with four main sections:
+#### 🎨 **User Interface** ⭐ IMPROVED
+- Modern Material Design interface with responsive layout
+- **Optimized buttons**: 40px buttons for better usability
+- **Fixed layout issues**: Stable button positioning during interactions
+- Five main navigation sections:
   - Upload: File upload and validation
-  - Scan: Real-time scanning with progress
-  - Report: Detailed analysis and export options
-  - Background Tasks: Manage all background scans ⭐ NEW
+  - Scan: Real-time scanning with progress tracking
+  - Report: Detailed analysis with sticky action toolbar
+  - Background Tasks: Manage all background scans with improved UI
+  - Database: Local database management and synchronization
 
 #### 🚀 **Performance Features**
 - LRU caching system (24-hour TTL, 1000 item capacity)
 - Intelligent API rate limiting with automatic backoff
-- Virtual scrolling for handling thousands of vulnerabilities
 - Progress tracking for long-running scans
 - Error handling and retry mechanisms
+- Optimized database operations using Web Workers
 
 ### Quick Start
 
 #### Prerequisites
-- Node.js 18+ 
+- Node.js 18+
 - npm or yarn package manager
 
 #### Installation
@@ -95,36 +98,35 @@ The application will be available at `http://localhost:4300`
 1. **Upload Package File**
    - Navigate to the upload page
    - Select your `package.json` or `package-lock.json` file
-   - Choose scan configuration (fast/balanced/comprehensive)
    - The tool will validate and extract dependencies
 
 2. **Choose Scan Mode**
+   - **API Scan**: Online scanning using NIST API (requires internet)
+   - **Local Scan**: Offline scanning using local database (faster)
    - **Foreground Scan**: Traditional blocking scan with immediate results
-   - **Background Scan** ⭐ NEW: Non-blocking scan, continue using other features
+   - **Background Scan**: Non-blocking scan, continue using other features
 
-3. **Manage Background Tasks** ⭐ NEW
+3. **Setup Local Database** (Optional)
+   - Access `/database` to manage local NVD database
+   - Download and synchronize complete NVD dataset
+   - Monitor sync progress and database status
+
+4. **Manage Background Tasks**
    - Access `/background-tasks` to view all scans
    - Pause, resume, or cancel running scans
    - Switch background scans to foreground view
-   - View completed scan results
+   - View completed scan results with improved interface
 
-4. **View Report**
+5. **View Report**
    - Access detailed vulnerability information
-   - Browse by package groups or view all vulnerabilities
+   - Use sticky toolbar for easy access to actions while scrolling
+   - Browse packages and vulnerabilities with enhanced UI
    - Read risk analysis and security recommendations
 
-5. **Export Results**
-   - Choose from JSON or CSV formats
+6. **Export Results**
+   - Choose from JSON, CSV, HTML, or SBOM formats
    - All exports include scan timestamps
    - Download reports locally
-
-### Background Scanning Benefits ⭐ NEW
-
-- **Productivity**: Don't wait for long scans to complete
-- **Flexibility**: Switch between scans and other tasks seamlessly  
-- **Reliability**: Scans continue even if you navigate away
-- **Notifications**: Get alerted when scans finish
-- **Persistence**: Resume interrupted scans after browser restart
 
 ### Technical Stack
 
@@ -135,6 +137,8 @@ The application will be available at `http://localhost:4300`
 - **Styling**: SCSS
 - **Testing**: Karma + Jasmine
 - **API**: NIST CVE Database REST API
+- **Local Database**: IndexedDB for NVD data storage
+- **Workers**: Web Workers for database operations
 - **Storage**: Browser LocalStorage for task persistence
 
 ### Architecture
@@ -145,60 +149,27 @@ src/app/
 │   ├── interfaces/          # TypeScript interfaces
 │   ├── models/             # Data models
 │   └── services/           # Business logic services
-│       ├── background-scan.service.ts  # Background task management ⭐ NEW
+│       ├── background-scan.service.ts  # Background task management
 │       ├── cache.service.ts            # LRU caching system
 │       ├── file-parser.service.ts      # File parsing logic
 │       ├── nist-api.service.ts         # NIST API integration
-│       ├── report-export.service.ts    # Export functionality
-│       └── version-recommendation.service.ts  # Version recommendations
+│       ├── local-scan.service.ts       # Local database scanning
+│       ├── nvd-database.service.ts     # IndexedDB management
+│       ├── nvd-download.service.ts     # NVD data download
+│       ├── nvd-parser.service.ts       # NVD data parsing
+│       ├── nvd-sync.service.ts         # Database synchronization
+│       ├── database-worker.service.ts  # Web Worker management
+│       └── report-export.service.ts    # Export functionality
 ├── features/               # Feature modules
 │   ├── upload/            # File upload component
 │   ├── scan/              # Scanning interface
 │   ├── report/            # Reporting dashboard
-│   └── background-tasks/  # Background task management ⭐ NEW
+│   ├── background-tasks/  # Background task management
+│   └── database-management/ # Local database management
 └── shared/                # Shared components
     ├── components/        # Reusable UI components
-    │   ├── vulnerability-detail.component.ts
-    │   ├── virtual-scroll-packages.component.ts
-    │   └── virtual-scroll-vulnerabilities.component.ts
     └── material/          # Material Design modules
 ```
-
-### Development Commands
-
-```bash
-# Development server (running on port 4300)
-npm start
-
-# Build for production
-npm run build
-
-# Run tests
-npm test
-
-# Build with file watching
-npm run watch
-```
-
-### API Integration
-
-The application integrates with the NIST CVE database API:
-- Base URL: `https://services.nvd.nist.gov/rest/json/cves/2.0`
-- Rate limiting: 10 requests per minute (7-second intervals)
-- Caching: 24-hour TTL with LRU eviction
-- Error handling: Graceful degradation and retry logic
-
-### Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
 
 ---
 
@@ -211,7 +182,9 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ### 功能特色
 
 #### 🔍 **漏洞掃描**
-- 即時掃描 npm 套件相依性
+- **雙模式掃描**: 支援 API 掃描和本地資料庫掃描
+- **本地資料庫**: 使用 IndexedDB 儲存完整的 NVD 資料庫副本
+- **離線支援**: 本地掃描可在無網路連線時使用
 - 整合 NIST 國家漏洞資料庫 (NVD)
 - 支援 `package.json` 和 `package-lock.json` 檔案
 - CVSS 評分和嚴重性分類（嚴重、高、中、低風險）
@@ -228,48 +201,49 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - **自動清理**：超過 24 小時的任務自動移除
 - **手動清理**：一鍵立即移除過期任務
 - **任務持久化**：所有任務狀態保存至本地儲存
-- **即時更新**：任務狀態在所有瀏覽器分頁間即時更新
-- **智慧過濾**：可配置的掃描模式（快速、平衡、完整）
+- **即時更新**：掃描完成時任務狀態自動更新
+- **穩定性改善**：修正按鈕定位和佈局穩定性問題
 
-#### 📊 **全面性報告**
+#### 📊 **增強型報告** ⭐ 功能改善
 - 互動式儀表板顯示漏洞統計
-- 掃描過程中的即時進度追蹤
+- **黏性工具列**：滾動時報告操作按鈕始終可見
 - 視覺化圖表顯示風險分佈
-- 大型資料集的虛擬捲動（效能最佳化）
-- 套件分組顯示與折疊面板
+- 套件和漏洞表格含排序和篩選功能
 - 詳細漏洞資訊包含：
   - CVE 識別碼和描述
-  - CVSS 分數和向量
+  - CVSS 分數和嚴重性等級
   - 發布和修改日期
-  - 受影響版本和修復資訊
-  - 相關參考連結
+  - 受影響版本和參考連結
 
 #### 📁 **多種匯出格式**
 - **JSON**：完整結構化資料含中繼資料
 - **CSV**：相容試算表的分析格式
+- **SBOM 格式**：CycloneDX 和 SPDX 軟體物料清單
+- **HTML 報告**：具視覺化格式的完整安全報告
 - 所有匯出皆包含掃描時間戳記和完整中繼資料
 
-#### 🎨 **使用者介面**
-- 現代化 Material Design 介面（Indigo-Pink 主題）
-- 響應式設計支援桌面和行動裝置
-- 顏色編碼的嚴重性指示器
-- 直觀的四階段導航：
+#### 🎨 **使用者介面** ⭐ 介面改善
+- 現代化 Material Design 介面含響應式佈局
+- **優化按鈕**：40px 按鈕提供更好的可用性
+- **修正佈局問題**：互動時按鈕位置保持穩定
+- 五個主要導航區域：
   - 上傳：檔案上傳和驗證
-  - 掃描：即時掃描含進度顯示
-  - 報告：詳細分析和匯出選項
-  - 背景任務：管理所有背景掃描 ⭐ 全新功能
+  - 掃描：即時掃描含進度追蹤
+  - 報告：詳細分析含黏性操作工具列
+  - 背景任務：管理所有背景掃描（介面已改善）
+  - 資料庫：本地資料庫管理與同步
 
 #### 🚀 **效能特色**
 - LRU 快取系統（24小時 TTL，1000 項目容量）
 - 智慧型 API 限制處理含自動退避機制
-- 虛擬捲動處理數千個漏洞
 - 長時間掃描的進度追蹤
 - 錯誤處理和重試機制
+- 使用 Web Workers 優化資料庫操作
 
 ### 快速開始
 
 #### 系統需求
-- Node.js 18+ 
+- Node.js 18+
 - npm 或 yarn 套件管理器
 
 #### 安裝步驟
@@ -293,74 +267,35 @@ npm start
 1. **上傳套件檔案**
    - 導航至上傳頁面
    - 選擇您的 `package.json` 或 `package-lock.json` 檔案
-   - 選擇掃描配置（快速/平衡/完整）
    - 工具會驗證並提取相依性套件
 
 2. **選擇掃描模式**
+   - **API 掃描**：線上掃描使用 NIST API（需要網路連線）
+   - **本地掃描**：離線掃描使用本地資料庫（更快速）
    - **前景掃描**：傳統阻塞式掃描，立即顯示結果
-   - **背景掃描** ⭐ 全新功能：非阻塞掃描，可繼續使用其他功能
+   - **背景掃描**：非阻塞掃描，可繼續使用其他功能
 
-3. **管理背景任務** ⭐ 全新功能
+3. **設定本地資料庫**（選用）
+   - 造訪 `/database` 頁面管理本地 NVD 資料庫
+   - 下載並同步完整的 NVD 資料集
+   - 監控同步進度和資料庫狀態
+
+4. **管理背景任務**
    - 造訪 `/background-tasks` 頁面查看所有掃描
    - 暫停、繼續或取消執行中的掃描
    - 將背景掃描切換為前景顯示
-   - 檢視已完成的掃描結果
+   - 透過改善的介面檢視已完成的掃描結果
 
-4. **檢視報告**
+5. **檢視報告**
    - 存取詳細漏洞資訊
-   - 依套件群組瀏覽或檢視所有漏洞
+   - 使用黏性工具列在滾動時輕鬆存取操作功能
+   - 透過增強的 UI 瀏覽套件和漏洞
    - 閱讀風險分析和安全建議
 
-5. **匯出結果**
-   - 選擇 JSON 或 CSV 格式
+6. **匯出結果**
+   - 選擇 JSON、CSV、HTML 或 SBOM 格式
    - 所有匯出皆包含掃描時間戳記
    - 本地下載報告檔案
-
-### 背景掃描優勢 ⭐ 全新功能
-
-- **生產力提升**：不需等待長時間掃描完成
-- **靈活彈性**：掃描和其他任務間無縫切換
-- **可靠性**：即使離開頁面掃描仍持續進行
-- **通知功能**：掃描完成時收到提醒
-- **持久性**：瀏覽器重啟後可恢復中斷的掃描
-
-### 技術堆疊
-
-- **前端框架**：Angular 17（獨立元件）
-- **UI 元件**：Angular Material 17
-- **圖表**：Chart.js 搭配 ng2-charts
-- **響應式程式設計**：RxJS
-- **樣式**：SCSS
-- **測試**：Karma + Jasmine
-- **API**：NIST CVE 資料庫 REST API
-- **儲存**：瀏覽器 LocalStorage 用於任務持久化
-
-### 架構設計
-
-```
-src/app/
-├── core/                    # 核心服務和模型
-│   ├── interfaces/          # TypeScript 介面
-│   ├── models/             # 資料模型
-│   └── services/           # 業務邏輯服務
-│       ├── background-scan.service.ts  # 背景任務管理 ⭐ 全新功能
-│       ├── cache.service.ts            # LRU 快取系統
-│       ├── file-parser.service.ts      # 檔案解析邏輯
-│       ├── nist-api.service.ts         # NIST API 整合
-│       ├── report-export.service.ts    # 匯出功能
-│       └── version-recommendation.service.ts  # 版本建議
-├── features/               # 功能模組
-│   ├── upload/            # 檔案上傳元件
-│   ├── scan/              # 掃描介面
-│   ├── report/            # 報告儀表板
-│   └── background-tasks/  # 背景任務管理 ⭐ 全新功能
-└── shared/                # 共用元件
-    ├── components/        # 可重用 UI 元件
-    │   ├── vulnerability-detail.component.ts
-    │   ├── virtual-scroll-packages.component.ts
-    │   └── virtual-scroll-vulnerabilities.component.ts
-    └── material/          # Material Design 模組
-```
 
 ### 開發指令
 
@@ -378,122 +313,36 @@ npm test
 npm run watch
 ```
 
-### API 整合
-
-應用程式整合 NIST CVE 資料庫 API：
-- 基礎 URL：`https://services.nvd.nist.gov/rest/json/cves/2.0`
-- 限制處理：每分鐘 10 次請求（7 秒間隔）
-- 快取機制：24小時 TTL 含 LRU 淘汰策略
-- 錯誤處理：優雅降級和重試邏輯
-
-### 安全考量
-
-#### 防護措施
-- 僅進行防禦性安全分析
-- 不生成或改進可能被惡意使用的代碼
-- 專注於漏洞檢測和風險評估
-- 提供安全建議和修復指引
-
-#### 資料隱私
-- 不收集或儲存敏感資訊
-- 本地處理套件資訊
-- API 查詢僅使用套件名稱
-- 報告匯出為本地檔案
-- 任務資料僅存儲於本地瀏覽器
-
-### 貢獻指南
-
-1. Fork 儲存庫
-2. 建立功能分支 (`git checkout -b feature/amazing-feature`)
-3. 提交變更 (`git commit -m 'Add amazing feature'`)
-4. 推送至分支 (`git push origin feature/amazing-feature`)
-5. 開啟 Pull Request
-
-### 授權條款
-
-此專案採用 MIT 授權 - 詳情請參閱 LICENSE 檔案。
-
----
-
-## Workflow / 工作流程
-
-### 1. Upload Stage / 上傳階段
-```mermaid
-graph TD
-    A[Select package file] --> B[File Validation]
-    B --> C[Extract Dependencies]
-    C --> D[Display Package List]
-    D --> E[Choose Scan Mode]
-    E --> F[Navigate to Scan]
-```
-
-### 2. Scanning Stage / 掃描階段
-```mermaid
-graph TD
-    A[Choose Scan Type] --> B{Background or Foreground?}
-    B -->|Background| C[Create Background Task]
-    B -->|Foreground| D[Direct API Calls]
-    C --> E[Task Queue Management]
-    E --> F[API Rate Limiting]
-    D --> F
-    F --> G[Query NIST Database]
-    G --> H[Process Results]
-    H --> I[Update Progress]
-    I --> J{More Packages?}
-    J -->|Yes| G
-    J -->|No| K[Complete Scan]
-    K --> L[Send Notification]
-    L --> M[Navigate to Report]
-```
-
-### 3. Background Task Management / 背景任務管理 ⭐ NEW
-```mermaid
-graph TD
-    A[Background Tasks Page] --> B[View Active Tasks]
-    B --> C[View Completed Tasks]
-    C --> D[Task Controls]
-    D --> E[Pause/Resume/Cancel]
-    D --> F[Switch to Foreground]
-    D --> G[Delete Completed]
-    E --> H[Auto Cleanup Timer]
-    H --> I[Remove 24h+ Old Tasks]
-```
-
-### 4. Reporting Stage / 報告階段
-```mermaid
-graph TD
-    A[Generate Report] --> B[Display Statistics]
-    B --> C[Show Package Groups]
-    C --> D[Show Vulnerability Details]
-    D --> E[Risk Analysis]
-    E --> F[Export Options]
-    F --> G[JSON/CSV Export]
-```
-
 ---
 
 ## Changelog / 更新日誌
 
-### v2.1.0 (Current) ⭐ Enhanced Features
-- ✅ **Version recommendation system**: Smart suggestions for vulnerable packages
-- ✅ **Package grouping**: Organized display with collapsible sections
-- ✅ **Virtual scrolling improvements**: Better performance for large datasets
-- ✅ **Enhanced file parsing**: Improved support for various package formats
-- ✅ **UI/UX enhancements**: Better visual indicators and user experience
+### v3.1.0 (Current) ⭐ UI/UX Improvements
+- ✅ **Sticky toolbar**: Report actions always accessible while scrolling
+- ✅ **Button optimization**: 40px buttons for better usability
+- ✅ **Layout stability**: Fixed button positioning issues during interactions
+- ✅ **Background task improvements**: Enhanced real-time updates and automatic task completion detection
+- ✅ **Upload page cleanup**: Removed inappropriate SBOM HTML export from upload stage
 
-### v2.0.0 (Previous) ⭐ Major Update
+### v3.0.0 (Previous) ⭐ Local Database Scanning
+- ✅ **Local database scanning**: Complete NVD database stored in IndexedDB
+- ✅ **Offline capability**: Scan packages without internet connection
+- ✅ **Database synchronization**: Download and sync complete NVD dataset
+- ✅ **Web Workers**: Background database operations for better performance
+- ✅ **Dual scan modes**: Choose between API and local database scanning
+
+### v2.0.0 (Previous) ⭐ Background Scanning
 - ✅ **Background scanning system**: Non-blocking scans with task management
-- ✅ **Persistent task states**: Tasks survive page refreshes and browser restarts  
+- ✅ **Persistent task states**: Tasks survive page refreshes and browser restarts
 - ✅ **Browser notifications**: Get notified when background scans complete
 - ✅ **Automatic task cleanup**: Tasks older than 24 hours automatically removed
 - ✅ **Task management UI**: Comprehensive background task management page
-- ✅ **Foreground switching**: Convert background tasks to foreground view
 
 ### v1.0.0 (Initial)
 - ✅ Complete NIST API integration
 - ✅ Real-time vulnerability scanning
 - ✅ Comprehensive reporting dashboard
-- ✅ Multiple export formats (JSON, CSV)
+- ✅ Multiple export formats (JSON, CSV, SBOM)
 - ✅ LRU caching system
 - ✅ Automatic rate limiting with retry logic
 
@@ -502,5 +351,5 @@ graph TD
 **Built with ❤️ using Angular and Material Design**  
 **使用 Angular 和 Material Design 用心建構**
 
-**⭐ Now with Background Scanning - Scan without waiting!**  
-**⭐ 現在支援背景掃描 - 掃描不等待！**
+**⭐ Now with Enhanced UI/UX - Smooth & Stable Experience!**  
+**⭐ 現在具備增強的 UI/UX - 流暢且穩定的體驗！**

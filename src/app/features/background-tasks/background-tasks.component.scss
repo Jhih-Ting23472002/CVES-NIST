@@ -82,10 +82,10 @@
       padding: 1.5rem 1rem;
       text-align: center;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      transition: transform 0.2s ease;
+      transition: box-shadow 0.2s ease;
 
       &:hover {
-        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
       }
 
       &.running {
@@ -159,6 +159,8 @@
   // ��h<
   .tasks-table {
     width: 100%;
+    // 使用固定表格佈局以提高穩定性
+    table-layout: fixed;
 
     .mat-mdc-header-cell {
       background-color: #fafafa;
@@ -169,6 +171,9 @@
     .mat-mdc-cell {
       padding: 1rem 0.5rem;
       border-bottom: 1px solid #e0e0e0;
+      // 確保表格行高度穩定，防止內容變化時跳版
+      min-height: 60px;
+      vertical-align: middle;
     }
 
     .task-name {
@@ -243,12 +248,70 @@
       display: flex;
       gap: 0.25rem;
       align-items: center;
-      min-width: 120px;
+      justify-content: flex-start;
+      min-width: 140px;
+      // 防止按鈕容器在按鈕狀態改變時變形
+      flex-shrink: 0;
 
       .mat-mdc-icon-button {
-        width: 32px;
-        height: 32px;
-        font-size: 14px;
+        // 重置所有可能造成位移的屬性
+        width: 40px !important;
+        height: 40px !important;
+        min-width: 40px !important;
+        min-height: 40px !important;
+        max-width: 40px !important;
+        max-height: 40px !important;
+        
+        // 固定定位和對齊
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        flex-shrink: 0 !important;
+        
+        // 重置邊距和邊框
+        margin: 0 !important;
+        padding: 0 !important;
+        border: none !important;
+        
+        // 移除所有可能的變換效果
+        transform: none !important;
+        transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
+        
+        // 確保在所有狀態下保持相同的尺寸和位置
+        &:hover,
+        &:focus,
+        &:active,
+        &.mat-mdc-button-disabled,
+        &.mat-mdc-button-disabled[disabled] {
+          width: 40px !important;
+          height: 40px !important;
+          min-width: 40px !important;
+          min-height: 40px !important;
+          max-width: 40px !important;
+          max-height: 40px !important;
+          transform: none !important;
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+        
+        // 圖示居中對齊
+        mat-icon {
+          font-size: 20px !important;
+          width: 20px !important;
+          height: 20px !important;
+          line-height: 20px !important;
+        }
+        
+        // 移除 ripple 效果的視覺影響
+        .mat-ripple {
+          overflow: hidden !important;
+        }
+        
+        // 移除 Material Design 預設的 focus 和 hover 效果
+        .mat-mdc-button-persistent-ripple,
+        .mat-mdc-button-ripple {
+          display: none !important;
+        }
       }
     }
   }
@@ -351,6 +414,10 @@
       .mat-mdc-cell, .mat-mdc-header-cell {
         padding: 0.75rem 0.25rem;
       }
+      
+      .mat-mdc-cell {
+        min-height: 50px;
+      }
 
       .progress-info {
         min-width: 150px;
@@ -361,11 +428,39 @@
       }
 
       .action-buttons {
-        min-width: 80px;
+        min-width: 100px;
 
         .mat-mdc-icon-button {
-          width: 28px;
-          height: 28px;
+          width: 36px !important;
+          height: 36px !important;
+          min-width: 36px !important;
+          min-height: 36px !important;
+          max-width: 36px !important;
+          max-height: 36px !important;
+          flex-shrink: 0 !important;
+          
+          &:hover,
+          &:focus,
+          &:active,
+          &.mat-mdc-button-disabled,
+          &.mat-mdc-button-disabled[disabled] {
+            width: 36px !important;
+            height: 36px !important;
+            min-width: 36px !important;
+            min-height: 36px !important;
+            max-width: 36px !important;
+            max-height: 36px !important;
+            transform: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          
+          mat-icon {
+            font-size: 18px !important;
+            width: 18px !important;
+            height: 18px !important;
+            line-height: 18px !important;
+          }
         }
       }
     }

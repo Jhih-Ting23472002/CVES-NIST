@@ -90,6 +90,76 @@
         color: #999;
       }
     }
+
+    // 檔案位置提示
+    .file-location-hint {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 1rem 0;
+      padding: 0.75rem;
+      background-color: #e8f4fd;
+      border-radius: 8px;
+      color: #1976d2;
+      font-size: 0.9rem;
+
+      mat-icon {
+        font-size: 1.1rem;
+        width: 1.1rem;
+        height: 1.1rem;
+      }
+    }
+
+    .feature-highlights {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin: 1.5rem 0;
+
+      .feature-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: #1976d2;
+        font-size: 0.9rem;
+        
+        mat-icon {
+          font-size: 1.2rem;
+          width: 1.2rem;
+          height: 1.2rem;
+        }
+
+        span {
+          font-weight: 500;
+        }
+      }
+
+      @media (min-width: 768px) {
+        flex-direction: row;
+        justify-content: center;
+        gap: 1.5rem;
+      }
+    }
+
+    // 範例提示
+    .example-hint {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 1rem 0;
+      padding: 0.75rem;
+      background-color: #fff3e0;
+      border-radius: 8px;
+      color: #f57c00;
+      font-size: 0.9rem;
+      border-left: 3px solid #ff9800;
+
+      mat-icon {
+        font-size: 1.1rem;
+        width: 1.1rem;
+        height: 1.1rem;
+      }
+    }
   }
 }
 
@@ -184,6 +254,25 @@
         margin: 0.5rem 0;
       }
     }
+
+    .error-help {
+      margin-top: 1rem;
+      padding: 0.75rem;
+      background-color: #fff3e0;
+      border-radius: 4px;
+      border-left: 3px solid #ff9800;
+
+      p {
+        margin: 0.25rem 0;
+        color: #e65100;
+        font-size: 0.85rem;
+        line-height: 1.4;
+
+        strong {
+          color: #bf360c;
+        }
+      }
+    }
   }
 }
 
@@ -251,6 +340,27 @@
       font-weight: 500;
     }
 
+    // 新手提示樣式
+    .beginner-tip {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+      padding: 1rem;
+      background-color: #f1f8e9;
+      border-radius: 8px;
+      border-left: 4px solid #8bc34a;
+      color: #33691e;
+      font-size: 0.9rem;
+
+      mat-icon {
+        color: #689f38;
+        font-size: 1.2rem;
+        width: 1.2rem;
+        height: 1.2rem;
+      }
+    }
+
     .scan-mode-options {
       display: flex;
       flex-direction: column;
@@ -279,6 +389,15 @@
             .mode-label {
               font-weight: 500;
               color: #333;
+            }
+
+            .mode-badge {
+              background-color: #4caf50;
+              color: white;
+              font-size: 0.7rem;
+              padding: 0.2rem 0.5rem;
+              border-radius: 12px;
+              font-weight: 500;
             }
 
             .mode-icon-fast {
@@ -488,6 +607,7 @@
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  margin-bottom: 2rem;
 }
 
 .help-step {
@@ -495,24 +615,82 @@
   align-items: flex-start;
   gap: 1rem;
 
-  mat-icon {
-    color: #1976d2;
+  .step-number {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    background-color: #1976d2;
+    color: white;
+    border-radius: 50%;
+    font-weight: 500;
+    font-size: 0.9rem;
+    flex-shrink: 0;
     margin-top: 0.2rem;
-    font-size: 1.2rem;
-    width: 1.2rem;
-    height: 1.2rem;
   }
 
   h4 {
     margin: 0 0 0.5rem 0;
     color: #333;
+    font-size: 1rem;
   }
 
   p {
-    margin: 0;
+    margin: 0 0 0.5rem 0;
     color: #666;
     font-size: 0.9rem;
     line-height: 1.4;
+  }
+
+  small {
+    color: #999;
+    font-size: 0.8rem;
+    display: block;
+  }
+}
+
+// FAQ 樣式
+.faq-section {
+  border-top: 1px solid #eee;
+  padding-top: 1.5rem;
+  margin-top: 1.5rem;
+
+  h4 {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 0 1rem 0;
+    color: #333;
+    font-size: 1rem;
+
+    mat-icon {
+      color: #1976d2;
+      font-size: 1.1rem;
+      width: 1.1rem;
+      height: 1.1rem;
+    }
+  }
+
+  .faq-item {
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+
+    strong {
+      color: #333;
+      display: block;
+      margin-bottom: 0.25rem;
+      font-size: 0.9rem;
+    }
+
+    p {
+      margin: 0;
+      color: #666;
+      font-size: 0.85rem;
+      line-height: 1.4;
+    }
   }
 }
 

@@ -5,11 +5,18 @@
         <div class="title-section">
           <mat-card-title>
             <mat-icon>security</mat-icon>
-            CVE 安全掃描工具
+            安全掃描工具
           </mat-card-title>
-          <mat-card-subtitle>上傳您的 package.json 或 package-lock.json 檔案進行安全漏洞掃描</mat-card-subtitle>
+          <mat-card-subtitle>檢查專案套件是否有安全漏洞</mat-card-subtitle>
         </div>
         <div class="header-actions">
+          <button mat-stroked-button 
+                  color="primary"
+                  routerLink="/database"
+                  matTooltip="管理本地 NVD 資料庫">
+            <mat-icon>storage</mat-icon>
+            資料庫管理
+          </button>
           <button mat-icon-button 
                   color="primary"
                   routerLink="/background-tasks"
@@ -45,9 +52,25 @@
               
               <div class="upload-content">
                 <mat-icon class="upload-icon">upload</mat-icon>
-                <h3>拖拽檔案至此或點擊選擇</h3>
-                <p>支援 package.json 或 package-lock.json 檔案</p>
-                <p class="file-size-hint">最大檔案大小: 10MB</p>
+                <h3>拖拽檔案或點擊選擇</h3>
+                <p>上傳 <strong>package.json</strong> 或 <strong>package-lock.json</strong></p>
+                
+                <div class="feature-highlights">
+                  <div class="feature-item">
+                    <mat-icon>speed</mat-icon>
+                    <span>快速掃描</span>
+                  </div>
+                  <div class="feature-item">
+                    <mat-icon>offline_bolt</mat-icon>
+                    <span>離線使用</span>
+                  </div>
+                  <div class="feature-item">
+                    <mat-icon>shield</mat-icon>
+                    <span>安全檢測</span>
+                  </div>
+                </div>
+                
+                <p class="file-size-hint">檔案大小 < 10MB</p>
               </div>
             </div>
 
@@ -84,16 +107,22 @@
                 </div>
 
                 <div class="validation-details" *ngIf="validationResult.isValid">
-                  <p>✅ 檔案格式正確</p>
-                  <p>✅ 包含相依性資訊</p>
-                  <p>✅ 總共找到 {{ packages.length }} 個套件</p>
+                  <p>✅ 檔案格式正確，可以正常讀取</p>
+                  <p>✅ 找到套件相依性資訊</p>
+                  <p>✅ 偵測到 {{ packages.length }} 個需要檢查的套件</p>
                 </div>
 
                 <div class="validation-errors" *ngIf="!validationResult.isValid">
-                  <h4>發現的問題：</h4>
+                  <h4>❌ 檔案有問題，需要修正：</h4>
                   <ul>
                     <li *ngFor="let error of validationResult.errors">{{ error }}</li>
                   </ul>
+                  <div class="error-help">
+                    <p><strong>💡 解決建議：</strong></p>
+                    <p>• 確認是從 Node.js 專案中選取的檔案</p>
+                    <p>• 檔案內容要是有效的 JSON 格式</p>
+                    <p>• 檔案中要有 dependencies 或 devDependencies</p>
+                  </div>
                 </div>
               </div>
 
@@ -155,7 +184,8 @@
                   </mat-expansion-panel-header>
                   
                   <div class="scan-mode-content">
-                    <h4>選擇掃描模式：</h4>
+                    <h4>掃描範圍：</h4>
+                    
                     <mat-radio-group 
                       [value]="currentScanConfig.mode" 
                       (change)="onScanModeChange($event.value)">
@@ -170,8 +200,9 @@
                             <div class="mode-header">
                               <mat-icon [class]="'mode-icon-' + mode.value">{{ mode.icon }}</mat-icon>
                               <span class="mode-label">{{ mode.label }}</span>
+                              <span class="mode-badge" *ngIf="mode.value === 'balanced'">推薦</span>
                             </div>
-                            <p class="mode-description">{{ mode.description }}</p>
+                            <p class="mode-description">{{ getSimplifiedModeDescription(mode.value) }}</p>
                           </div>
                         </mat-radio-button>
                       </div>
@@ -239,6 +270,32 @@
                 <mat-icon>arrow_back</mat-icon>
                 上一步
               </button>
+              
+              <!-- SBOM 匯出選單 -->
+              <button mat-raised-button 
+                      color="primary" 
+                      [matMenuTriggerFor]="sbomExportMenu"
+                      [disabled]="!canExportSbom()">
+                <mat-icon>inventory</mat-icon>
+                匯出 SBOM
+                <mat-icon>arrow_drop_down</mat-icon>
+              </button>
+              <mat-menu #sbomExportMenu="matMenu">
+                <div mat-subheader>軟體物料清單 (SBOM)</div>
+                <button mat-menu-item (click)="exportPackageListAsCycloneDX()">
+                  <mat-icon>description</mat-icon>
+                  <span>CycloneDX JSON</span>
+                </button>
+                <button mat-menu-item (click)="exportPackageListAsSpdx()">
+                  <mat-icon>description</mat-icon>
+                  <span>SPDX JSON</span>
+                </button>
+                <mat-divider></mat-divider>
+                <div mat-menu-item disabled class="menu-info">
+                  <small>📋 純套件清單格式 (無漏洞資訊)</small>
+                </div>
+              </mat-menu>
+              
               <button mat-raised-button 
                       color="accent" 
                       (click)="startScan()"
@@ -258,38 +315,30 @@
     <mat-card-header>
       <mat-card-title>
         <mat-icon>help_outline</mat-icon>
-        如何使用
+        使用步驟
       </mat-card-title>
     </mat-card-header>
     <mat-card-content>
       <div class="help-steps">
         <div class="help-step">
-          <mat-icon>upload_file</mat-icon>
+          <div class="step-number">1</div>
           <div>
-            <h4>1. 上傳檔案</h4>
-            <p>選擇您專案根目錄的 package.json 或 package-lock.json 檔案</p>
+            <h4>上傳檔案</h4>
+            <p>選擇專案中的 package.json</p>
           </div>
         </div>
         <div class="help-step">
-          <mat-icon>verified</mat-icon>
+          <div class="step-number">2</div>
           <div>
-            <h4>2. 檔案驗證</h4>
-            <p>系統會自動驗證檔案格式和內容</p>
+            <h4>開始掃描</h4>
+            <p>點擊掃描按鈕即可</p>
           </div>
         </div>
-        <div class="help-step">
-          <mat-icon>list</mat-icon>
-          <div>
-            <h4>3. 套件清單</h4>
-            <p>檢視所有偵測到的相依性套件</p>
-          </div>
-        </div>
-        <div class="help-step">
-          <mat-icon>security</mat-icon>
-          <div>
-            <h4>4. 安全掃描</h4>
-            <p>開始進行 CVE 漏洞掃描和分析</p>
-          </div>
+      </div>
+      
+      <div class="faq-section">
+        <div class="faq-item">
+          <strong>💡 檔案不會上傳到伺服器，在本地處理</strong>
         </div>
       </div>
     </mat-card-content>

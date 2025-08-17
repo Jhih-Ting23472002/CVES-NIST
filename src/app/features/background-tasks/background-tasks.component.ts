@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
@@ -44,25 +44,44 @@ export class BackgroundTasksComponent implements OnInit, OnDestroy {
   displayedActiveColumns = ['name', 'progress', 'status', 'actions'];
   displayedCompletedColumns = ['name', 'duration', 'status', 'results', 'actions'];
   
+  // 快取清理時間，避免變更檢測錯誤
+  nextCleanupTime: string = '';
+  
   private stateSubscription?: Subscription;
   private currentTaskSubscription?: Subscription;
 
   constructor(
     public backgroundScanService: BackgroundScanService,
     private router: Router,
-    private snackBar: MatSnackBar
+    private snackBar: MatSnackBar,
+    private cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit(): void {
     // 訂閱背景掃描狀態
     this.stateSubscription = this.backgroundScanService.state$.subscribe(
-      state => this.state = state
+      state => {
+        console.log('Background tasks state updated:', {
+          activeCount: state.activeTasks.length,
+          completedCount: state.completedTasks.length
+        });
+        this.state = state;
+        // 手動觸發變更檢測
+        this.cdr.detectChanges();
+      }
     );
 
     // 訂閱當前執行任務
     this.currentTaskSubscription = this.backgroundScanService.currentTask$.subscribe(
-      task => this.currentTask = task
+      task => {
+        this.currentTask = task;
+        this.cdr.detectChanges();
+      }
     );
+    
+    // 初始化清理時間並設定定期更新
+    this.updateNextCleanupTime();
+    setInterval(() => this.updateNextCleanupTime(), 60000); // 每分鐘更新一次
   }
 
   ngOnDestroy(): void {
@@ -265,11 +284,18 @@ export class BackgroundTasksComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * 取得下次自動清理時間
+   * 更新下次清理時間
+   */
+  private updateNextCleanupTime(): void {
+    const nextTime = this.backgroundScanService.getNextCleanupTime();
+    this.nextCleanupTime = nextTime.toLocaleString();
+  }
+
+  /**
+   * 取得下次自動清理時間 (返回快取值避免變更檢測錯誤)
    */
   getNextCleanupTime(): string {
-    const nextTime = this.backgroundScanService.getNextCleanupTime();
-    return nextTime.toLocaleString();
+    return this.nextCleanupTime;
   }
 
   /**
