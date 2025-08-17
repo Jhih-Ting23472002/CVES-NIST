@@ -197,25 +197,6 @@ interface PackageTableRow {
               </td>
             </ng-container>
             
-            <!-- 操作欄位 -->
-            <ng-container matColumnDef="actions">
-              <th mat-header-cell *matHeaderCellDef>操作</th>
-              <td mat-cell *matCellDef="let element">
-                <div class="action-buttons">
-                  <button mat-icon-button 
-                          matTooltip="檢視詳細資訊"
-                          (click)="viewPackageDetails(element)">
-                    <mat-icon>info</mat-icon>
-                  </button>
-                  <button mat-icon-button 
-                          *ngIf="element.packageInfo.type !== 'transitive'"
-                          matTooltip="版本推薦"
-                          (click)="loadVersionRecommendation(element)">
-                    <mat-icon>upgrade</mat-icon>
-                  </button>
-                </div>
-              </td>
-            </ng-container>
             
             <!-- 表格標題列 -->
             <tr mat-header-row *matHeaderRowDef="displayedColumns; sticky: true"></tr>
@@ -437,10 +418,6 @@ interface PackageTableRow {
       color: #4caf50;
     }
     
-    .action-buttons {
-      display: flex;
-      gap: 4px;
-    }
     
     .no-vulnerabilities {
       color: #4caf50;
@@ -473,7 +450,7 @@ export class PackageTableComponent implements OnInit, OnChanges, AfterViewInit {
   @ViewChild(MatPaginator) paginator!: MatPaginator;
   @ViewChild(MatSort) sort!: MatSort;
   
-  displayedColumns: string[] = ['name', 'version', 'type', 'risk', 'vulnerabilities', 'severity', 'actions'];
+  displayedColumns: string[] = ['name', 'version', 'type', 'risk', 'vulnerabilities', 'severity'];
   dataSource = new MatTableDataSource<PackageTableRow>([]);
   
   searchTerm = '';
@@ -560,7 +537,7 @@ export class PackageTableComponent implements OnInit, OnChanges, AfterViewInit {
   }
   
   applyFilter(): void {
-    this.dataSource.filterPredicate = (data: PackageTableRow, filter: string) => {
+    this.dataSource.filterPredicate = (data: PackageTableRow) => {
       const searchMatch = !this.searchTerm || 
         data.packageInfo.name.toLowerCase().includes(this.searchTerm.toLowerCase());
       
@@ -668,13 +645,4 @@ export class PackageTableComponent implements OnInit, OnChanges, AfterViewInit {
     return order[severity] || 999;
   }
   
-  viewPackageDetails(row: PackageTableRow): void {
-    // 這裡可以實作檢視套件詳細資訊的功能
-    console.log('檢視套件詳情:', row.packageInfo);
-  }
-  
-  loadVersionRecommendation(row: PackageTableRow): void {
-    // 這裡可以實作版本推薦的功能
-    console.log('載入版本推薦:', row.packageInfo);
-  }
 }

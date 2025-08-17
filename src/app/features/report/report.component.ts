@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, HostListener, ElementRef, Renderer2 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
@@ -12,6 +12,9 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
+import { MatMenuModule } from '@angular/material/menu';
+import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatDividerModule } from '@angular/material/divider';
 import { FormsModule } from '@angular/forms';
 import { BaseChartDirective } from 'ng2-charts';
 import { ChartConfiguration, ChartType } from 'chart.js';
@@ -41,6 +44,9 @@ import { VersionRecommendationService } from '../../core/services/version-recomm
     MatFormFieldModule,
     MatInputModule,
     MatSelectModule,
+    MatMenuModule,
+    MatCheckboxModule,
+    MatDividerModule,
     FormsModule,
     BaseChartDirective,
     VirtualScrollVulnerabilitiesComponent,
@@ -60,6 +66,9 @@ export class ReportComponent implements OnInit {
     mainPackage: {packageName: string, vulnerabilities: Vulnerability[], packageInfo?: PackageInfo},
     dependencies: {packageName: string, vulnerabilities: Vulnerability[], packageInfo?: PackageInfo}[]
   }[] = [];
+  
+  // 黏性工具列狀態
+  isScrolled: boolean = false;
   
   // 版本推薦相關
   versionRecommendations: Map<string, any> = new Map(); // 使用套件名稱作為 key
@@ -96,7 +105,9 @@ export class ReportComponent implements OnInit {
   constructor(
     private router: Router,
     private reportExportService: ReportExportService,
-    private versionRecommendationService: VersionRecommendationService
+    private versionRecommendationService: VersionRecommendationService,
+    private elementRef: ElementRef,
+    private renderer: Renderer2
   ) {
     // 從路由狀態取得資料
     const navigation = this.router.getCurrentNavigation();
@@ -127,6 +138,34 @@ export class ReportComponent implements OnInit {
     }
     
     this.setupChart();
+  }
+
+  /**
+   * 監聽滑動事件，為黏性工具列添加視覺效果
+   */
+  @HostListener('window:scroll', ['$event'])
+  onWindowScroll(): void {
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    const newScrollState = scrollTop > 50; // 當滑動50px後觸發
+    
+    if (this.isScrolled !== newScrollState) {
+      this.isScrolled = newScrollState;
+      this.updateStickyActionsStyle();
+    }
+  }
+
+  /**
+   * 更新黏性工具列的樣式
+   */
+  private updateStickyActionsStyle(): void {
+    const stickyActions = this.elementRef.nativeElement.querySelector('.sticky-actions');
+    if (stickyActions) {
+      if (this.isScrolled) {
+        this.renderer.addClass(stickyActions, 'scrolled');
+      } else {
+        this.renderer.removeClass(stickyActions, 'scrolled');
+      }
+    }
   }
 
   private createDemoData(): void {
@@ -275,6 +314,18 @@ export class ReportComponent implements OnInit {
 
   exportAsHtml(): void {
     this.reportExportService.exportAsHtml(this.packages, this.scanResults, this.scanTimestamp);
+  }
+
+  exportAsCycloneDX(includeVulnerabilities: boolean = false): void {
+    this.reportExportService.exportAsCycloneDX(this.packages, this.scanResults, this.scanTimestamp, includeVulnerabilities);
+  }
+
+  exportAsSpdx(includeVulnerabilities: boolean = false): void {
+    this.reportExportService.exportAsSpdx(this.packages, this.scanResults, this.scanTimestamp, includeVulnerabilities);
+  }
+
+  exportAsSbomHtml(): void {
+    this.reportExportService.exportAsSbomHtml(this.packages, this.scanResults, this.scanTimestamp, true);
   }
 
   startNewScan(): void {

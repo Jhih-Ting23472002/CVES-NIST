@@ -1,77 +1,114 @@
 <div class="report-container">
   <!-- 報告標題 -->
-  <mat-card class="report-header-card">
-    <mat-card-header>
-      <mat-card-title>
+  <header class="report-header">
+    <div class="header-content">
+      <h1>
         <mat-icon>assessment</mat-icon>
         安全掃描報告
-      </mat-card-title>
-      <mat-card-subtitle>
-        <div class="report-metadata">
-          <div>掃描了 {{ packages.length }} 個套件，發現 {{ getTotalVulnerabilities() }} 個漏洞</div>
-          <div class="scan-timestamp">
-            <mat-icon>schedule</mat-icon>
-            掃描時間: {{ formatScanTimestamp() }}
-          </div>
-        </div>
-      </mat-card-subtitle>
-    </mat-card-header>
-    
-    <mat-card-content>
-      <!-- 總覽統計 -->
-      <div class="summary-stats">
-        <div class="stat-card critical" *ngIf="getSeverityCount('CRITICAL') > 0">
-          <div class="stat-icon">
-            <mat-icon>dangerous</mat-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-number">{{ getSeverityCount('CRITICAL') }}</div>
-            <div class="stat-label">嚴重</div>
-          </div>
-        </div>
-        
-        <div class="stat-card high" *ngIf="getSeverityCount('HIGH') > 0">
-          <div class="stat-icon">
-            <mat-icon>warning</mat-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-number">{{ getSeverityCount('HIGH') }}</div>
-            <div class="stat-label">高風險</div>
-          </div>
-        </div>
-        
-        <div class="stat-card medium" *ngIf="getSeverityCount('MEDIUM') > 0">
-          <div class="stat-icon">
-            <mat-icon>error_outline</mat-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-number">{{ getSeverityCount('MEDIUM') }}</div>
-            <div class="stat-label">中風險</div>
-          </div>
-        </div>
-        
-        <div class="stat-card low" *ngIf="getSeverityCount('LOW') > 0">
-          <div class="stat-icon">
-            <mat-icon>info</mat-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-number">{{ getSeverityCount('LOW') }}</div>
-            <div class="stat-label">低風險</div>
-          </div>
-        </div>
-        
-        <div class="stat-card safe">
-          <div class="stat-icon">
-            <mat-icon>verified</mat-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-number">{{ getSafePackagesCount() }}</div>
-            <div class="stat-label">安全</div>
-          </div>
-        </div>
+      </h1>
+      <div class="report-summary">
+        <span class="packages-count">{{ packages.length }} 個套件</span>
+        <span class="vulnerabilities-count">{{ getTotalVulnerabilities() }} 個漏洞</span>
+        <time class="scan-time">
+          <mat-icon>schedule</mat-icon>
+          {{ formatScanTimestamp() }}
+        </time>
       </div>
-    </mat-card-content>
-  </mat-card>
+    </div>
+  </header>
+  
+  <!-- 黏性操作工具列 -->
+  <nav class="sticky-actions">
+    <div class="action-group">
+      <button mat-stroked-button (click)="goBack()">
+        <mat-icon>arrow_back</mat-icon>
+        返回掃描
+      </button>
+      
+      <button mat-flat-button color="primary" (click)="startNewScan()">
+        <mat-icon>refresh</mat-icon>
+        新的掃描
+      </button>
+    </div>
+    
+    <div class="export-group">
+      <span class="export-label">匯出報告：</span>
+      
+      <button mat-button (click)="exportAsJson()">
+        <mat-icon>code</mat-icon>
+        JSON
+      </button>
+      
+      <button mat-button (click)="exportAsCsv()">
+        <mat-icon>table_chart</mat-icon>
+        CSV
+      </button>
+      
+      <button mat-button (click)="exportAsHtml()">
+        <mat-icon>description</mat-icon>
+        HTML
+      </button>
+      
+      <button mat-button (click)="exportAsSbomHtml()">
+        <mat-icon>security</mat-icon>
+        SBOM HTML
+      </button>
+      
+      <button mat-button [matMenuTriggerFor]="sbomMenu">
+        <mat-icon>inventory</mat-icon>
+        SBOM
+        <mat-icon>expand_more</mat-icon>
+      </button>
+      
+      <mat-menu #sbomMenu="matMenu">
+        <div mat-subheader>CycloneDX</div>
+        <button mat-menu-item (click)="exportAsCycloneDX(false)">
+          <span>僅套件清單</span>
+        </button>
+        <button mat-menu-item (click)="exportAsCycloneDX(true)">
+          <span>包含漏洞資訊</span>
+        </button>
+        <mat-divider></mat-divider>
+        <div mat-subheader>SPDX</div>
+        <button mat-menu-item (click)="exportAsSpdx(false)">
+          <span>僅套件清單</span>
+        </button>
+        <button mat-menu-item (click)="exportAsSpdx(true)">
+          <span>包含漏洞資訊</span>
+        </button>
+      </mat-menu>
+    </div>
+  </nav>
+  
+  <!-- 關鍵指標 -->
+  <section class="metrics-overview">
+    <div class="metric-grid">
+      <div class="metric critical" *ngIf="getSeverityCount('CRITICAL') > 0">
+        <span class="metric-value">{{ getSeverityCount('CRITICAL') }}</span>
+        <span class="metric-label">嚴重</span>
+      </div>
+      
+      <div class="metric high" *ngIf="getSeverityCount('HIGH') > 0">
+        <span class="metric-value">{{ getSeverityCount('HIGH') }}</span>
+        <span class="metric-label">高風險</span>
+      </div>
+      
+      <div class="metric medium" *ngIf="getSeverityCount('MEDIUM') > 0">
+        <span class="metric-value">{{ getSeverityCount('MEDIUM') }}</span>
+        <span class="metric-label">中風險</span>
+      </div>
+      
+      <div class="metric low" *ngIf="getSeverityCount('LOW') > 0">
+        <span class="metric-value">{{ getSeverityCount('LOW') }}</span>
+        <span class="metric-label">低風險</span>
+      </div>
+      
+      <div class="metric safe">
+        <span class="metric-value">{{ getSafePackagesCount() }}</span>
+        <span class="metric-label">安全</span>
+      </div>
+    </div>
+  </section>
 
   <!-- 主要內容頁籤 -->
   <mat-tab-group class="report-tabs">
@@ -85,23 +122,20 @@
           </h3>
         </div>
         
-        <!-- 風險分佈圖 -->
+        <!-- 風險分析圖表 -->
         <div class="chart-section" *ngIf="getTotalVulnerabilities() > 0">
-          <h4>風險分佈圖</h4>
-          <div class="chart-container">
+          <h4>風險分佈</h4>
+          <div class="chart-wrapper">
             <canvas baseChart
                     [data]="doughnutChartData"
                     type="doughnut"
-                    [options]="doughnutChartOptions"
-                    width="400"
-                    height="300">
+                    [options]="doughnutChartOptions">
             </canvas>
           </div>
         </div>
         
-        <mat-card class="analysis-card">
-          <mat-card-content>
-            <div class="risk-analysis">
+        <div class="analysis-content">
+          <div class="risk-analysis">
               <div class="analysis-section" *ngIf="getSeverityCount('CRITICAL') > 0">
                 <h4 class="critical-title">
                   <mat-icon>dangerous</mat-icon>
@@ -197,9 +231,8 @@
                   <li>考慮引入 Dependabot 等工具自動化管理</li>
                 </ul>
               </div>
-            </div>
-          </mat-card-content>
-        </mat-card>
+          </div>
+        </div>
       </div>
     </mat-tab>
 
@@ -214,34 +247,19 @@
           <p>顯示所有掃描的套件及其安全狀態</p>
         </div>
         
-        <!-- 套件統計摘要 -->
-        <div class="summary-stats">
-          <div class="stat-card package-total">
-            <div class="stat-icon">
-              <mat-icon>inventory</mat-icon>
-            </div>
-            <div class="stat-content">
-              <div class="stat-number">{{ packages.length }}</div>
-              <div class="stat-label">總套件數</div>
-            </div>
+        <!-- 套件統計 -->
+        <div class="package-stats">
+          <div class="stat-item">
+            <span class="stat-value">{{ packages.length }}</span>
+            <span class="stat-name">總套件數</span>
           </div>
-          <div class="stat-card package-vulnerable" *ngIf="getVulnerablePackagesCount() > 0">
-            <div class="stat-icon">
-              <mat-icon>warning</mat-icon>
-            </div>
-            <div class="stat-content">
-              <div class="stat-number">{{ getVulnerablePackagesCount() }}</div>
-              <div class="stat-label">有漏洞套件</div>
-            </div>
+          <div class="stat-item vulnerable" *ngIf="getVulnerablePackagesCount() > 0">
+            <span class="stat-value">{{ getVulnerablePackagesCount() }}</span>
+            <span class="stat-name">有漏洞</span>
           </div>
-          <div class="stat-card package-safe">
-            <div class="stat-icon">
-              <mat-icon>verified</mat-icon>
-            </div>
-            <div class="stat-content">
-              <div class="stat-number">{{ getSafePackagesCount() }}</div>
-              <div class="stat-label">安全套件</div>
-            </div>
+          <div class="stat-item safe">
+            <span class="stat-value">{{ getSafePackagesCount() }}</span>
+            <span class="stat-name">安全</span>
           </div>
         </div>
 
@@ -270,32 +288,4 @@
       </div>
     </mat-tab>
   </mat-tab-group>
-
-  <!-- 動作按鈕 -->
-  <div class="action-buttons">
-    <button mat-button (click)="goBack()">
-      <mat-icon>arrow_back</mat-icon>
-      返回掃描
-    </button>
-    
-    <div class="export-buttons">
-      <button mat-raised-button color="primary" (click)="exportAsJson()">
-        <mat-icon>download</mat-icon>
-        匯出 JSON
-      </button>
-      <button mat-raised-button color="primary" (click)="exportAsCsv()">
-        <mat-icon>table_chart</mat-icon>
-        匯出 CSV
-      </button>
-      <button mat-raised-button color="primary" (click)="exportAsHtml()">
-        <mat-icon>description</mat-icon>
-        匯出 HTML
-      </button>
-    </div>
-    
-    <button mat-raised-button color="accent" (click)="startNewScan()">
-      <mat-icon>refresh</mat-icon>
-      新的掃描
-    </button>
-  </div>
 </div>

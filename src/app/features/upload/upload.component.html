@@ -270,6 +270,32 @@
                 <mat-icon>arrow_back</mat-icon>
                 上一步
               </button>
+              
+              <!-- SBOM 匯出選單 -->
+              <button mat-raised-button 
+                      color="primary" 
+                      [matMenuTriggerFor]="sbomExportMenu"
+                      [disabled]="!canExportSbom()">
+                <mat-icon>inventory</mat-icon>
+                匯出 SBOM
+                <mat-icon>arrow_drop_down</mat-icon>
+              </button>
+              <mat-menu #sbomExportMenu="matMenu">
+                <div mat-subheader>軟體物料清單 (SBOM)</div>
+                <button mat-menu-item (click)="exportPackageListAsCycloneDX()">
+                  <mat-icon>description</mat-icon>
+                  <span>CycloneDX JSON</span>
+                </button>
+                <button mat-menu-item (click)="exportPackageListAsSpdx()">
+                  <mat-icon>description</mat-icon>
+                  <span>SPDX JSON</span>
+                </button>
+                <mat-divider></mat-divider>
+                <div mat-menu-item disabled class="menu-info">
+                  <small>📋 純套件清單格式 (無漏洞資訊)</small>
+                </div>
+              </mat-menu>
+              
               <button mat-raised-button 
                       color="accent" 
                       (click)="startScan()"

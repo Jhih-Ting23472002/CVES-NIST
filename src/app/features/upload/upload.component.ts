@@ -14,11 +14,14 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatRadioModule } from '@angular/material/radio';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatBadgeModule } from '@angular/material/badge';
+import { MatMenuModule } from '@angular/material/menu';
+import { MatDividerModule } from '@angular/material/divider';
 import { FormsModule } from '@angular/forms';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 
 import { FileParserService } from '../../core/services/file-parser.service';
 import { BackgroundScanService } from '../../core/services/background-scan.service';
+import { ReportExportService } from '../../core/services/report-export.service';
 import { PackageInfo, ValidationResult, ScanConfig, DEFAULT_SCAN_CONFIGS } from '../../core/models/vulnerability.model';
 
 @Component({
@@ -41,6 +44,8 @@ import { PackageInfo, ValidationResult, ScanConfig, DEFAULT_SCAN_CONFIGS } from 
     MatRadioModule,
     MatExpansionModule,
     MatBadgeModule,
+    MatMenuModule,
+    MatDividerModule,
     ScrollingModule
   ],
   templateUrl: './upload.component.html',
@@ -97,7 +102,8 @@ export class UploadComponent implements OnInit {
     private router: Router,
     private snackBar: MatSnackBar,
     private fileParserService: FileParserService,
-    public backgroundScanService: BackgroundScanService
+    public backgroundScanService: BackgroundScanService,
+    private reportExportService: ReportExportService
   ) {
     this.fileSelectionForm = this.fb.group({
       file: ['', Validators.required]
@@ -380,6 +386,49 @@ export class UploadComponent implements OnInit {
   // 虛擬滾動 trackBy 函數，提升性能
   trackByPackageName(_index: number, item: PackageInfo): string {
     return item.name;
+  }
+
+  // SBOM 匯出功能
+  exportPackageListAsCycloneDX(): void {
+    if (this.packages.length === 0) {
+      this.snackBar.open('沒有套件可以匯出', '關閉', {
+        duration: 3000,
+        verticalPosition: 'top'
+      });
+      return;
+    }
+
+    // 不包含漏洞資訊，因為還沒掃描
+    this.reportExportService.exportAsCycloneDX(this.packages, [], new Date(), false);
+    
+    this.snackBar.open('CycloneDX SBOM 匯出成功', '關閉', {
+      duration: 3000,
+      verticalPosition: 'top'
+    });
+  }
+
+  exportPackageListAsSpdx(): void {
+    if (this.packages.length === 0) {
+      this.snackBar.open('沒有套件可以匯出', '關閉', {
+        duration: 3000,
+        verticalPosition: 'top'
+      });
+      return;
+    }
+
+    // 不包含漏洞資訊，因為還沒掃描
+    this.reportExportService.exportAsSpdx(this.packages, [], new Date(), false);
+    
+    this.snackBar.open('SPDX SBOM 匯出成功', '關閉', {
+      duration: 3000,
+      verticalPosition: 'top'
+    });
+  }
+
+
+  // 檢查是否可以匯出 SBOM
+  canExportSbom(): boolean {
+    return this.packages.length > 0;
   }
 
 }
