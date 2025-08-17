@@ -273,16 +273,29 @@ export class BackgroundScanService {
    * 將任務移動到已完成清單
    */
   private moveToCompleted(task: ScanTask): void {
+    // 創建新的陣列參考以確保Angular變更檢測正確觸發
     this.state.activeTasks = this.state.activeTasks.filter(t => t.id !== task.id);
-    this.state.completedTasks.unshift(task);
+    this.state.completedTasks = [task, ...this.state.completedTasks];
     
     // 限制已完成任務數量（最多保留10個）
     if (this.state.completedTasks.length > 10) {
       this.state.completedTasks = this.state.completedTasks.slice(0, 10);
     }
     
+    // 創建新的狀態物件以確保完全觸發變更檢測
+    this.state = {
+      ...this.state,
+      activeTasks: [...this.state.activeTasks],
+      completedTasks: [...this.state.completedTasks]
+    };
+    
     this.saveState();
     this.stateSubject.next(this.state);
+    
+    console.log(`Task moved to completed: ${task.name}`, {
+      activeTasksCount: this.state.activeTasks.length,
+      completedTasksCount: this.state.completedTasks.length
+    });
   }
 
   /**
@@ -576,6 +589,7 @@ export class BackgroundScanService {
   public getNextCleanupTime(): Date {
     return new Date(Date.now() + this.CLEANUP_INTERVAL);
   }
+
 
   /**
    * 服務銷毀時清理資源
