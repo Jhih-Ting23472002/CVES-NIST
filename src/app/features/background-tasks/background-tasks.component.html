@@ -77,6 +77,13 @@
                 [value]="task.progress.percentage">
               </mat-progress-bar>
               <small>{{ task.progress.current }} / {{ task.progress.total }} ({{ task.progress.percentage.toFixed(1) }}%)</small>
+              
+              <!-- 恢復掃描提示 -->
+              <div class="resume-info" *ngIf="task.status === 'paused' && task.lastScannedIndex !== undefined && task.lastScannedIndex >= 0">
+                <mat-icon class="resume-icon" matTooltip="此任務將從上次暫停的位置繼續掃描">restore</mat-icon>
+                <small class="resume-text">已掃描 {{ task.lastScannedIndex + 1 }} 個套件，繼續時將從第 {{ task.lastScannedIndex + 2 }} 個開始</small>
+              </div>
+              
               <div class="current-package" *ngIf="task.status === 'running'">
                 {{ task.progress.currentPackage }}
               </div>
@@ -105,8 +112,8 @@
                       color="primary"
                       *ngIf="canStartTask(task)"
                       (click)="startTask(task.id)"
-                      matTooltip="開始/繼續任務">
-                <mat-icon>play_arrow</mat-icon>
+                      matTooltip="{{ task.status === 'paused' && task.lastScannedIndex !== undefined && task.lastScannedIndex >= 0 ? '從上次暫停的位置繼續掃描' : '開始掃描任務' }}">
+                <mat-icon>{{ task.status === 'paused' && task.lastScannedIndex !== undefined && task.lastScannedIndex >= 0 ? 'play_circle' : 'play_arrow' }}</mat-icon>
               </button>
 
               <!-- 暫停 -->
@@ -114,7 +121,7 @@
                       color="warn"
                       *ngIf="canPauseTask(task)"
                       (click)="pauseTask(task.id)"
-                      matTooltip="暫停任務">
+                      matTooltip="暫停任務（可稍後從此位置繼續）">
                 <mat-icon>pause</mat-icon>
               </button>
 

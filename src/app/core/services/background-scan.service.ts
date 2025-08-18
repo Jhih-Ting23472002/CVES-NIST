@@ -76,7 +76,10 @@ export class BackgroundScanService {
         currentPackage: '等待開始...'
       },
       createdAt: new Date(),
-      estimatedDuration: estimatedTime.estimatedMinutes
+      estimatedDuration: estimatedTime.estimatedMinutes,
+      // 初始化中間結果和掃描索引
+      intermediateResults: [],
+      lastScannedIndex: -1
     };
 
     this.state.activeTasks.push(task);
@@ -108,11 +111,23 @@ export class BackgroundScanService {
 
     task.status = 'running';
     task.startedAt = new Date();
+
+    // 初始化或恢復進度顯示
+    const resumeFromIndex = (task.lastScannedIndex ?? -1) + 1;
+    task.progress = {
+      current: resumeFromIndex,
+      total: task.packages.length,
+      percentage: (resumeFromIndex / task.packages.length) * 100,
+      currentPackage: resumeFromIndex < task.packages.length 
+        ? `準備掃描: ${task.packages[resumeFromIndex].name}` 
+        : '準備完成...'
+    };
+
     this.saveState();
     this.stateSubject.next(this.state);
     this.currentTaskSubject.next(task);
 
-    console.log(`開始背景掃描任務: ${task.name}`);
+    console.log(`開始背景掃描任務: ${task.name}，從索引 ${resumeFromIndex} 恢復`);
 
     // 執行掃描
     this.executeScan(task);
@@ -125,13 +140,19 @@ export class BackgroundScanService {
     const task = this.getTask(taskId);
     if (!task || task.status !== 'running') return;
 
+    console.log(`[PAUSE] 開始暫停掃描任務: ${task.name}`);
+    
     task.status = 'paused';
+    
+    // 發送停止信號給所有正在執行的 Observable
     this.stopCurrentScan$.next();
+    console.log(`[PAUSE] 已發送停止信號`);
+    
     this.saveState();
     this.stateSubject.next(this.state);
     this.currentTaskSubject.next(null);
 
-    console.log(`暫停掃描任務: ${task.name}`);
+    console.log(`[PAUSE] 暫停掃描任務完成: ${task.name}，狀態已更新`);
   }
 
   /**
@@ -195,41 +216,90 @@ export class BackgroundScanService {
   }
 
   /**
-   * 執行實際的掃描邏輯
+   * 執行實際的掃描邏輯（支援斷點續掃）
    */
   private executeScan(task: ScanTask): void {
     const startTime = Date.now();
     
-    this.nistApiService.searchMultiplePackagesWithProgress(task.packages)
+    // 檢查是否有中間結果需要恢復
+    const resumeFromIndex = (task.lastScannedIndex ?? -1) + 1;
+    const packagesToScan = task.packages.slice(resumeFromIndex);
+    
+    console.log(`開始掃描任務 ${task.name}，從索引 ${resumeFromIndex} 開始，剩餘 ${packagesToScan.length} 個套件`);
+    
+    // 如果已經掃描完成，直接返回結果
+    if (resumeFromIndex >= task.packages.length && task.intermediateResults && task.intermediateResults.length > 0) {
+      task.status = 'completed';
+      task.results = task.intermediateResults;
+      task.completedAt = new Date();
+      task.actualDuration = Math.round((Date.now() - startTime) / 60000);
+      
+      this.moveToCompleted(task);
+      this.currentTaskSubject.next(null);
+      this.sendCompletionNotification(task);
+      
+      console.log(`背景掃描已完成: ${task.name}`);
+      return;
+    }
+    
+    console.log(`[SCAN] 開始執行掃描，目標套件數: ${packagesToScan.length}`);
+    
+    this.nistApiService.searchMultiplePackagesWithProgressResumable(packagesToScan, resumeFromIndex, task.packages.length)
       .pipe(
         takeUntil(this.stopCurrentScan$),
         tap(response => {
           if (response.type === 'progress' && response.progress) {
+            // 更新進度，考慮已掃描的套件
+            const totalProgress = resumeFromIndex + response.progress.current;
             task.progress = {
-              current: response.progress.current + 1,
-              total: response.progress.total,
-              percentage: ((response.progress.current + 1) / response.progress.total) * 100,
+              current: totalProgress,
+              total: task.packages.length,
+              percentage: (totalProgress / task.packages.length) * 100,
               currentPackage: response.progress.currentPackage.includes('等待') 
                 ? response.progress.currentPackage 
                 : `正在掃描: ${response.progress.currentPackage}`
             };
             this.saveState();
             this.stateSubject.next(this.state);
+          } else if (response.type === 'packageResult' && response.packageResult) {
+            // 即時保存單個套件的掃描結果
+            if (!task.intermediateResults) {
+              task.intermediateResults = [];
+            }
+            task.intermediateResults.push(response.packageResult);
+            task.lastScannedIndex = resumeFromIndex + (response.packageIndex || 0);
+            
+            // 更新進度顯示，包含剛完成的套件
+            const totalProgress = task.lastScannedIndex + 1;
+            task.progress = {
+              current: totalProgress,
+              total: task.packages.length,
+              percentage: (totalProgress / task.packages.length) * 100,
+              currentPackage: totalProgress < task.packages.length 
+                ? `已完成: ${response.packageResult.packageName}` 
+                : '即將完成...'
+            };
+            
+            this.saveState();
+            this.stateSubject.next(this.state);
+            console.log(`已保存套件 ${response.packageResult.packageName} 的掃描結果，總進度: ${totalProgress}/${task.packages.length}`);
           }
         }),
         finalize(() => {
-          // 清理停止信號
+          // 清理停止信號，準備下次使用
+          console.log(`[FINALIZE] 掃描已結束，重新創建停止信號`);
           this.stopCurrentScan$ = new Subject<void>();
         })
       )
       .subscribe({
         next: (response) => {
           if (response.type === 'result' && response.results) {
-            // 掃描完成
+            // 掃描完成，合併所有結果
+            const finalResults = [...(task.intermediateResults || []), ...response.results];
             task.status = 'completed';
-            task.results = response.results;
+            task.results = finalResults;
             task.completedAt = new Date();
-            task.actualDuration = Math.round((Date.now() - startTime) / 60000); // 分鐘
+            task.actualDuration = Math.round((Date.now() - startTime) / 60000);
 
             this.moveToCompleted(task);
             this.currentTaskSubject.next(null);
@@ -237,7 +307,7 @@ export class BackgroundScanService {
             // 發送通知
             this.sendCompletionNotification(task);
             
-            console.log(`背景掃描完成: ${task.name}`);
+            console.log(`背景掃描完成: ${task.name}，共掃描 ${finalResults.length} 個套件`);
           }
         },
         error: (error) => {
@@ -302,10 +372,27 @@ export class BackgroundScanService {
    * 恢復未完成的任務
    */
   private resumeActiveTasks(): void {
-    const runningTask = this.getRunningTask();
-    if (runningTask) {
-      // 將正在執行的任務標記為暫停，因為頁面重新載入了
-      runningTask.status = 'paused';
+    this.state.activeTasks.forEach(task => {
+      if (task.status === 'running') {
+        // 將正在執行的任務標記為暫停，因為頁面重新載入了
+        task.status = 'paused';
+        
+        // 確保進度顯示正確反映已完成的套件數
+        const completedCount = (task.lastScannedIndex ?? -1) + 1;
+        task.progress = {
+          current: completedCount,
+          total: task.packages.length,
+          percentage: (completedCount / task.packages.length) * 100,
+          currentPackage: completedCount < task.packages.length 
+            ? `暫停於: ${task.packages[completedCount].name}` 
+            : '即將完成...'
+        };
+        
+        console.log(`恢復任務 ${task.name}，已完成 ${completedCount}/${task.packages.length} 個套件`);
+      }
+    });
+    
+    if (this.state.activeTasks.some(t => t.status === 'paused')) {
       this.saveState();
       this.stateSubject.next(this.state);
     }

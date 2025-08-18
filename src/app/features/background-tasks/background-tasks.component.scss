@@ -208,6 +208,28 @@
         margin-bottom: 0.25rem;
       }
 
+      .resume-info {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+        padding: 0.25rem 0.5rem;
+        background-color: #e8f5e8;
+        border-radius: 4px;
+        border-left: 3px solid #4caf50;
+
+        .resume-icon {
+          font-size: 1rem;
+          color: #4caf50;
+        }
+
+        .resume-text {
+          font-size: 0.75rem;
+          color: #2e7d32;
+          margin: 0;
+        }
+      }
+
       .current-package {
         font-size: 0.75rem;
         color: #1976d2;

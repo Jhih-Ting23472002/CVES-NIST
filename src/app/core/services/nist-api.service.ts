@@ -184,6 +184,40 @@ export class NistApiService implements OnDestroy {
   }
 
   /**
+   * 支援斷點續掃的批次掃描方法
+   */
+  searchMultiplePackagesWithProgressResumable(
+    packages: PackageInfo[], 
+    startFromIndex: number = 0, 
+    totalPackagesCount: number
+  ): Observable<{
+    type: 'progress' | 'result' | 'error' | 'packageResult',
+    progress?: { current: number, total: number, currentPackage: string },
+    results?: {packageName: string, vulnerabilities: Vulnerability[]}[],
+    packageResult?: {packageName: string, vulnerabilities: Vulnerability[]},
+    packageIndex?: number,
+    error?: string
+  }> {
+    // 檢查是否可以使用本地掃描
+    return this.localScanService.isDatabaseReady().pipe(
+      switchMap(isLocalReady => {
+        if (isLocalReady) {
+          console.log(`使用本地資料庫批次掃描，從索引 ${startFromIndex} 開始`);
+          return this.localScanService.scanMultiplePackagesWithProgressResumable(packages, startFromIndex, totalPackagesCount).pipe(
+            catchError(localError => {
+              console.warn('本地斷點續掃失敗，回退到 API 掃描:', localError);
+              return this.performApiBatchScanResumable(packages, startFromIndex, totalPackagesCount);
+            })
+          );
+        } else {
+          console.log(`本地資料庫未就緒，使用 API 批次掃描，從索引 ${startFromIndex} 開始`);
+          return this.performApiBatchScanResumable(packages, startFromIndex, totalPackagesCount);
+        }
+      })
+    );
+  }
+
+  /**
    * 執行 API 批次掃描（原有邏輯）
    */
   private performApiBatchScan(packages: PackageInfo[]): Observable<{
@@ -285,6 +319,136 @@ export class NistApiService implements OnDestroy {
         timeoutIds.forEach(id => clearTimeout(id));
         timeoutIds = [];
         console.log('掃描已暫停，清理所有待處理的請求');
+      };
+    });
+  }
+
+  /**
+   * 執行 API 批次掃描，支援斷點續掃
+   */
+  private performApiBatchScanResumable(
+    packages: PackageInfo[], 
+    startFromIndex: number = 0, 
+    totalPackagesCount: number
+  ): Observable<{
+    type: 'progress' | 'result' | 'error' | 'packageResult',
+    progress?: { current: number, total: number, currentPackage: string },
+    results?: {packageName: string, vulnerabilities: Vulnerability[]}[],
+    packageResult?: {packageName: string, vulnerabilities: Vulnerability[]},
+    packageIndex?: number,
+    error?: string
+  }> {
+    const results: {packageName: string, vulnerabilities: Vulnerability[]}[] = [];
+
+    return new Observable(observer => {
+      let timeoutIds: any[] = [];
+      let cancelled = false;
+
+      const processPackage = (index: number, retryCount: number = 0) => {
+        if (cancelled) {
+          observer.complete();
+          return;
+        }
+        
+        if (index >= packages.length) {
+          observer.next({
+            type: 'result',
+            results: results
+          });
+          observer.complete();
+          return;
+        }
+
+        const pkg = packages[index];
+        const actualIndex = startFromIndex + index;
+
+        // 發送進度更新
+        observer.next({
+          type: 'progress',
+          progress: {
+            current: index,
+            total: packages.length,
+            currentPackage: pkg.name
+          }
+        });
+
+        console.log(`正在掃描套件 ${actualIndex + 1}/${totalPackagesCount}: ${pkg.name}`);
+
+        this.performApiScan(pkg.name, pkg.version).subscribe({
+          next: (vulnerabilities) => {
+            const packageResult = {
+              packageName: pkg.packageKey || `${pkg.name}@${pkg.version}`,
+              vulnerabilities
+            };
+            
+            results.push(packageResult);
+
+            // 即時回報單個套件結果
+            observer.next({
+              type: 'packageResult',
+              packageResult: packageResult,
+              packageIndex: index
+            });
+
+            // 延遲後處理下一個套件
+            const timeoutId = setTimeout(() => processPackage(index + 1), this.REQUEST_DELAY);
+            timeoutIds.push(timeoutId);
+          },
+          error: (error) => {
+            const errorMessage = error.message || error.toString();
+            console.error(`掃描 ${pkg.name} 失敗:`, errorMessage);
+
+            // API 限制錯誤重試邏輯
+            if (errorMessage.includes('API 請求限制已達上限') && retryCount < 3) {
+              const waitTime = this.extractWaitTimeFromError(errorMessage);
+              console.log(`等待 ${waitTime} 秒後重試 ${pkg.name}...`);
+
+              observer.next({
+                type: 'progress',
+                progress: {
+                  current: index,
+                  total: packages.length,
+                  currentPackage: `等待 API 限制重置中... (${waitTime}秒)`
+                }
+              });
+
+              const retryTimeoutId = setTimeout(() => {
+                processPackage(index, retryCount + 1);
+              }, waitTime * 1000);
+              timeoutIds.push(retryTimeoutId);
+              return;
+            }
+
+            // 其他錯誤，記錄為空結果並繼續
+            const packageResult = {
+              packageName: pkg.packageKey || `${pkg.name}@${pkg.version}`,
+              vulnerabilities: []
+            };
+            
+            results.push(packageResult);
+
+            // 即時回報錯誤套件結果
+            observer.next({
+              type: 'packageResult',
+              packageResult: packageResult,
+              packageIndex: index
+            });
+
+            const continueTimeoutId = setTimeout(() => processPackage(index + 1), this.REQUEST_DELAY);
+            timeoutIds.push(continueTimeoutId);
+          }
+        });
+      };
+
+      processPackage(0);
+
+      // 返回清理函數
+      return () => {
+        console.log(`[API-CLEANUP] 收到暫停信號，正在清理 ${timeoutIds.length} 個待處理的請求`);
+        cancelled = true;
+        timeoutIds.forEach(id => clearTimeout(id));
+        timeoutIds = [];
+        console.log('[API-CLEANUP] 斷點續掃已暫停，所有待處理的請求已清理');
       };
     });
   }

@@ -522,6 +522,117 @@ export class LocalScanService {
   }
 
   /**
+   * 支援斷點續掃的批次掃描方法
+   */
+  scanMultiplePackagesWithProgressResumable(
+    packages: PackageInfo[], 
+    startFromIndex: number = 0, 
+    totalPackagesCount: number
+  ): Observable<{
+    type: 'progress' | 'result' | 'error' | 'packageResult';
+    progress?: ScanProgress;
+    results?: { packageName: string; vulnerabilities: Vulnerability[] }[];
+    packageResult?: { packageName: string; vulnerabilities: Vulnerability[] };
+    packageIndex?: number;
+    error?: string;
+  }> {
+    const results: { packageName: string; vulnerabilities: Vulnerability[] }[] = [];
+
+    return new Observable(observer => {
+      let cancelled = false;
+      
+      const scanPackage = (index: number) => {
+        if (cancelled) {
+          console.log('[LOCAL-CLEANUP] 本地掃描已取消');
+          observer.complete();
+          return;
+        }
+        
+        if (index >= packages.length) {
+          observer.next({
+            type: 'result',
+            results: results
+          });
+          observer.complete();
+          return;
+        }
+
+        const pkg = packages[index];
+        const packageKey = pkg.packageKey || `${pkg.name}@${pkg.version}`;
+        const actualIndex = startFromIndex + index;
+        
+        // 發送進度更新
+        const progress: ScanProgress = {
+          current: index,
+          total: packages.length,
+          percentage: (index / packages.length) * 100,
+          currentPackage: pkg.name
+        };
+
+        this.updateScanProgress(actualIndex, totalPackagesCount, `正在掃描: ${pkg.name}`);
+        
+        observer.next({
+          type: 'progress',
+          progress: progress
+        });
+
+        this.scanPackage(pkg.name, pkg.version).subscribe({
+          next: (vulnerabilities) => {
+            const packageResult = {
+              packageName: packageKey,
+              vulnerabilities
+            };
+            
+            results.push(packageResult);
+
+            // 即時回報單個套件結果
+            observer.next({
+              type: 'packageResult',
+              packageResult: packageResult,
+              packageIndex: index
+            });
+
+            // 本地掃描很快，可以立即處理下一個
+            scanPackage(index + 1);
+          },
+          error: (error) => {
+            console.error(`掃描 ${pkg.name} 失敗:`, error);
+            
+            const packageResult = {
+              packageName: packageKey,
+              vulnerabilities: []
+            };
+            
+            results.push(packageResult);
+
+            // 即時回報錯誤套件結果
+            observer.next({
+              type: 'packageResult',
+              packageResult: packageResult,
+              packageIndex: index
+            });
+
+            observer.next({
+              type: 'error',
+              error: `掃描 ${pkg.name} 失敗: ${error.message}`
+            });
+
+            scanPackage(index + 1);
+          }
+        });
+      };
+
+      scanPackage(0);
+      
+      // 返回清理函數
+      return () => {
+        console.log('[LOCAL-CLEANUP] 收到本地掃描取消信號');
+        cancelled = true;
+      };
+    });
+  }
+
+  /**
    * 進階掃描（使用多種搜尋策略，支援優化格式）
    */
   advancedScanPackage(packageName: string, version?: string): Observable<Vulnerability[]> {

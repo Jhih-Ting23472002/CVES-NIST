@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>斷點續掃功能測試</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-scenario { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .expected { color: green; }
+        .actual { color: blue; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>背景掃描任務 - 斷點續掃功能測試</h1>
+    
+    <div class="test-scenario">
+        <h3>測試場景 1: 新建任務的初始狀態</h3>
+        <p><strong>預期行為:</strong></p>
+        <ul class="expected">
+            <li>新任務的 intermediateResults 應為空陣列</li>
+            <li>lastScannedIndex 應為 -1</li>
+            <li>進度應顯示 0/總數 (0%)</li>
+        </ul>
+    </div>
+
+    <div class="test-scenario">
+        <h3>測試場景 2: 掃描進行中暫停</h3>
+        <p><strong>預期行為:</strong></p>
+        <ul class="expected">
+            <li>暫停時應保存已掃描套件的結果到 intermediateResults</li>
+            <li>lastScannedIndex 應記錄最後完成的套件索引</li>
+            <li>UI 應顯示已掃描的套件數量</li>
+            <li>顯示恢復提示訊息</li>
+        </ul>
+    </div>
+
+    <div class="test-scenario">
+        <h3>測試場景 3: 從暫停位置恢復掃描</h3>
+        <p><strong>預期行為:</strong></p>
+        <ul class="expected">
+            <li>進度條應從暫停位置開始，不重置為 0</li>
+            <li>只掃描剩餘的套件，不重頭開始</li>
+            <li>按鈕圖示變為 play_circle (恢復)</li>
+            <li>最終結果合併 intermediateResults 和新掃描結果</li>
+        </ul>
+    </div>
+
+    <div class="test-scenario">
+        <h3>測試場景 4: 頁面重新載入後的狀態恢復</h3>
+        <p><strong>預期行為:</strong></p>
+        <ul class="expected">
+            <li>正在執行的任務自動變為暫停狀態</li>
+            <li>進度顯示保持在上次完成的位置</li>
+            <li>恢復提示正確顯示已完成的套件數</li>
+        </ul>
+    </div>
+
+    <div class="test-scenario">
+        <h3>測試場景 5: 已完成掃描的任務恢復</h3>
+        <p><strong>預期行為:</strong></p>
+        <ul class="expected">
+            <li>如果 lastScannedIndex 已達到最後一個套件</li>
+            <li>任務應直接標記為完成，不重新掃描</li>
+            <li>結果使用 intermediateResults</li>
+        </ul>
+    </div>
+
+    <h2>實測步驟:</h2>
+    <ol>
+        <li>啟動 Angular 應用</li>
+        <li>上傳包含多個套件的 package.json</li>
+        <li>選擇背景掃描模式開始掃描</li>
+        <li>在掃描進行到一半時點擊暫停按鈕</li>
+        <li>檢查 UI 是否顯示正確的已完成套件數和恢復提示</li>
+        <li>點擊繼續按鈕</li>
+        <li>確認進度條從暫停位置繼續，而不是從 0 開始</li>
+        <li>等待掃描完成，檢查最終結果是否正確</li>
+    </ol>
+
+    <h2>關鍵檢查點:</h2>
+    <ul>
+        <li>✅ ScanTask 模型新增了 intermediateResults 和 lastScannedIndex 欄位</li>
+        <li>✅ BackgroundScanService.startScanTask() 正確初始化恢復進度</li>
+        <li>✅ BackgroundScanService.executeScan() 支援從指定索引開始掃描</li>
+        <li>✅ NistApiService 新增了 searchMultiplePackagesWithProgressResumable 方法</li>
+        <li>✅ LocalScanService 新增了對應的斷點續掃方法</li>
+        <li>✅ UI 顯示恢復提示和正確的按鈕圖示</li>
+        <li>✅ 頁面重新載入時正確恢復任務狀態</li>
+    </ul>
+</body>
+</html>
