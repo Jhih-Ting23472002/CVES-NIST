@@ -570,7 +570,7 @@ export class ReportExportService {
 
     if (breakdown.high > 0) {
       recommendations.push('');
-      recommendations.push('⚠️ 高風險漏洞管理:');
+      recommendations.push('⚠️ 高風險漏洞 management:');
       recommendations.push('  • 15天內完成修復 (CISA 建議時程)');
       recommendations.push('  • 使用 CVSS 和 EPSS 評估修復優先順序');
       recommendations.push('  • 實施網路分段和存取控制作為暫時緩解');
