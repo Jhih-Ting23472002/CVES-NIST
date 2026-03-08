@@ -8,7 +8,12 @@
       </h1>
       <div class="report-summary">
         <span class="packages-count">{{ packages.length }} 個套件</span>
-        <span class="vulnerabilities-count">{{ getTotalVulnerabilities() }} 個漏洞</span>
+        <span class="vulnerabilities-count">
+          {{ getTotalVulnerabilities() }} 個唯一漏洞
+          <span class="affected-count" *ngIf="hasDuplicateCves()">
+            （影響 {{ getTotalAffectedCombinations() }} 個套件-漏洞組合）
+          </span>
+        </span>
         <time class="scan-time">
           <mat-icon>schedule</mat-icon>
           {{ formatScanTimestamp() }}
@@ -279,7 +284,7 @@
             <mat-icon>bug_report</mat-icon>
             漏洞詳細清單
           </h3>
-          <p>顯示所有發現的安全漏洞詳細資訊 ({{ getTotalVulnerabilities() }} 個漏洞)</p>
+          <p>顯示所有發現的安全漏洞詳細資訊 ({{ getTotalVulnerabilities() }} 個唯一漏洞)</p>
         </div>
         
         <app-vulnerability-table 

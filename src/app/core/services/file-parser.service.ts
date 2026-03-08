@@ -344,8 +344,29 @@ export class FileParserService implements IFileParserService {
   }
 
   private normalizeVersion(version: string): string {
-    // 移除版本前綴符號 (^, ~, >=, 等)
-    return version.replace(/^[\^~>=<]+/, '').trim();
+    if (!version || version.trim() === '') return '0.0.0';
+    const v = version.trim();
+
+    // 保留特殊標籤（latest, next, beta 等純文字標籤）
+    if (/^[a-zA-Z]/.test(v)) return v;
+
+    // 連字號範圍 (1.0.0 - 2.0.0) → 取最小版本
+    if (v.includes(' - ')) {
+      return v.split(' - ')[0].trim().replace(/^[\^~>=<]+/, '').trim();
+    }
+
+    // 移除前綴符號 (^, ~, >=, >, <=, <)
+    let normalized = v.replace(/^[\^~>=<]+/, '').trim();
+
+    // 複合範圍 (>=1.0.0 <2.0.0) → 取第一個版本段
+    if (normalized.includes(' ')) {
+      normalized = normalized.split(' ')[0].trim();
+    }
+
+    // x 萬用字元 (1.x, 1.2.x) → 替換為 0
+    normalized = normalized.replace(/\.x/gi, '.0');
+
+    return normalized || '0.0.0';
   }
 
 

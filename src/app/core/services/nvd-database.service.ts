@@ -11,6 +11,7 @@ import {
   BatchProcessProgress
 } from '../interfaces/nvd-database.interface';
 import { Vulnerability } from '../models/vulnerability.model';
+import { compareVersions } from '../../shared/utils/version-utils';
 import { DatabaseWorkerService } from './database-worker.service';
 import { getDatabaseConfig, getYearsList } from '../config/database.config';
 
@@ -668,30 +669,23 @@ export class NvdDatabaseService {
    * 檢查版本是否在指定範圍內
    */
   private versionInRange(version: string, range: any): boolean {
-    // 這裡應該使用 semver 來比較版本，簡化實作
     try {
-      const versionParts = this.parseVersion(version);
-      
       if (range.versionStartIncluding) {
-        const startParts = this.parseVersion(range.versionStartIncluding);
-        if (this.compareVersions(versionParts, startParts) < 0) return false;
+        if (compareVersions(version, range.versionStartIncluding) < 0) return false;
       }
-      
+
       if (range.versionStartExcluding) {
-        const startParts = this.parseVersion(range.versionStartExcluding);
-        if (this.compareVersions(versionParts, startParts) <= 0) return false;
+        if (compareVersions(version, range.versionStartExcluding) <= 0) return false;
       }
-      
+
       if (range.versionEndIncluding) {
-        const endParts = this.parseVersion(range.versionEndIncluding);
-        if (this.compareVersions(versionParts, endParts) > 0) return false;
+        if (compareVersions(version, range.versionEndIncluding) > 0) return false;
       }
-      
+
       if (range.versionEndExcluding) {
-        const endParts = this.parseVersion(range.versionEndExcluding);
-        if (this.compareVersions(versionParts, endParts) >= 0) return false;
+        if (compareVersions(version, range.versionEndExcluding) >= 0) return false;
       }
-      
+
       return true;
     } catch (error) {
       console.warn('版本比較失敗:', error);
@@ -702,30 +696,6 @@ export class NvdDatabaseService {
   /**
    * 解析版本號
    */
-  private parseVersion(version: string): number[] {
-    return version.split(/[.-]/).map(part => {
-      const num = parseInt(part, 10);
-      return isNaN(num) ? 0 : num;
-    });
-  }
-
-  /**
-   * 比較版本號
-   */
-  private compareVersions(a: number[], b: number[]): number {
-    const maxLength = Math.max(a.length, b.length);
-    
-    for (let i = 0; i < maxLength; i++) {
-      const aPart = a[i] || 0;
-      const bPart = b[i] || 0;
-      
-      if (aPart !== bPart) {
-        return aPart - bPart;
-      }
-    }
-    
-    return 0;
-  }
 
   /**
    * 檢查關鍵字是否匹配

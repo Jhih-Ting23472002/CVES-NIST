@@ -179,6 +179,7 @@ export interface PackageVulnerabilityQuery {
   packageName: string;
   version?: string;
   searchType: 'exact' | 'fuzzy' | 'cpe';
+  ecosystem?: string; // 生態系統過濾 (npm, pypi, etc.)，用於排除不同生態系統的同名套件
 }
 
 // 查詢結果

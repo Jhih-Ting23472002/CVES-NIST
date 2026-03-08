@@ -27,6 +27,11 @@ import { PackageTableComponent } from '../../shared/components/package-table.com
 import { PackageInfo, Vulnerability } from '../../core/models/vulnerability.model';
 import { ReportExportService } from '../../core/services/report-export.service';
 import { VersionRecommendationService } from '../../core/services/version-recommendation.service';
+import {
+  getUniqueTotalVulnerabilities,
+  getUniqueSeverityCount,
+  getTotalAffectedCombinations
+} from '../../shared/utils/vulnerability-count-utils';
 
 @Component({
   selector: 'app-report',
@@ -239,9 +244,7 @@ export class ReportComponent implements OnInit {
   }
 
   getSeverityCount(severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'): number {
-    return this.scanResults.reduce((count, result) => {
-      return count + result.vulnerabilities.filter(v => v.severity === severity).length;
-    }, 0);
+    return getUniqueSeverityCount(this.scanResults, severity);
   }
 
   getSafePackagesCount(): number {
@@ -249,7 +252,15 @@ export class ReportComponent implements OnInit {
   }
 
   getTotalVulnerabilities(): number {
-    return this.scanResults.reduce((total, result) => total + result.vulnerabilities.length, 0);
+    return getUniqueTotalVulnerabilities(this.scanResults);
+  }
+
+  getTotalAffectedCombinations(): number {
+    return getTotalAffectedCombinations(this.scanResults);
+  }
+
+  hasDuplicateCves(): boolean {
+    return this.getTotalAffectedCombinations() > this.getTotalVulnerabilities();
   }
 
   getPackageRiskClass(vulnerabilities: Vulnerability[]): string {

@@ -5,7 +5,7 @@
 export interface DatabaseConfig {
   /** 下載年限（年） */
   downloadYearsRange: number;
-  
+
   /** 資料清理配置 */
   dataCleanup: {
     /** 啟用自動清理 */
@@ -15,7 +15,7 @@ export interface DatabaseConfig {
     /** 清理間隔（小時） */
     cleanupIntervalHours: number;
   };
-  
+
   /** 同步配置 */
   sync: {
     /** 自動同步間隔（小時） */
@@ -25,7 +25,7 @@ export interface DatabaseConfig {
     /** 重試延遲（毫秒） */
     retryDelayMs: number;
   };
-  
+
   /** 效能配置 */
   performance: {
     /** 批次大小 */
@@ -41,20 +41,20 @@ export interface DatabaseConfig {
  * 預設資料庫配置
  */
 export const DEFAULT_DATABASE_CONFIG: DatabaseConfig = {
-  downloadYearsRange: 6, // 預設下載近六年資料
-  
+  downloadYearsRange: 5, // 預設下載近資料
+
   dataCleanup: {
     enableAutoCleanup: true,
-    retentionYears: 6, // 保留六年資料
+    retentionYears: 5, // 保留年資料
     cleanupIntervalHours: 24, // 每24小時檢查一次
   },
-  
+
   sync: {
     autoSyncIntervalHours: 24, // 每24小時自動同步
     maxRetryAttempts: 3,
     retryDelayMs: 5000, // 5秒
   },
-  
+
   performance: {
     batchSize: 1000,
     maxConcurrentDownloads: 2,
@@ -68,7 +68,7 @@ export const DEFAULT_DATABASE_CONFIG: DatabaseConfig = {
  */
 export function getDatabaseConfig(): DatabaseConfig {
   const config = { ...DEFAULT_DATABASE_CONFIG };
-  
+
   // 從環境變數讀取配置（如果存在）
   if (typeof window !== 'undefined') {
     // 瀏覽器環境 - 從 localStorage 讀取
@@ -81,7 +81,7 @@ export function getDatabaseConfig(): DatabaseConfig {
         console.warn('解析本地資料庫配置失敗:', error);
       }
     }
-    
+
     // 從 URL 參數讀取（用於測試）
     const urlParams = new URLSearchParams(window.location.search);
     const downloadYears = urlParams.get('downloadYears');
@@ -90,7 +90,7 @@ export function getDatabaseConfig(): DatabaseConfig {
       config.dataCleanup.retentionYears = Number(downloadYears);
     }
   }
-  
+
   return config;
 }
 
@@ -121,11 +121,11 @@ export function getYearsList(config?: DatabaseConfig): number[] {
   const dbConfig = config || getDatabaseConfig();
   const currentYear = new Date().getFullYear();
   const years: number[] = [];
-  
+
   for (let i = 0; i < dbConfig.downloadYearsRange; i++) {
     years.push(currentYear - i);
   }
-  
+
   return years.sort((a, b) => b - a); // 降序排列
 }
 
@@ -136,7 +136,7 @@ export function isYearInRange(year: number, config?: DatabaseConfig): boolean {
   const dbConfig = config || getDatabaseConfig();
   const currentYear = new Date().getFullYear();
   const minYear = currentYear - dbConfig.downloadYearsRange + 1;
-  
+
   return year >= minYear && year <= currentYear;
 }
 
@@ -148,15 +148,15 @@ export function getYearsToCleanup(config?: DatabaseConfig): number[] {
   if (!dbConfig.dataCleanup.enableAutoCleanup) {
     return [];
   }
-  
+
   const currentYear = new Date().getFullYear();
   const cutoffYear = currentYear - dbConfig.dataCleanup.retentionYears;
   const yearsToCleanup: number[] = [];
-  
+
   // 假設最早可能的年份是 2000 年
   for (let year = 2000; year < cutoffYear; year++) {
     yearsToCleanup.push(year);
   }
-  
+
   return yearsToCleanup;
 }

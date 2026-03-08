@@ -212,7 +212,8 @@ export class LocalScanOptimizerService {
           const query: PackageVulnerabilityQuery = {
             packageName: pkg.name,
             version: pkg.version,
-            searchType: 'exact'
+            searchType: 'exact',
+            ecosystem: ecosystem
           };
           
           // 選擇最佳索引策略

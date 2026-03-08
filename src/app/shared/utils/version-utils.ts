@@ -13,24 +13,32 @@ export function compareVersions(version1: string, version2: string): number {
   // 清理版本字串，移除前綴符號和空白
   const clean1 = cleanVersion(version1);
   const clean2 = cleanVersion(version2);
-  
+
   if (clean1 === clean2) return 0;
-  
-  // 分割版本號並轉換為數字陣列
-  const parts1 = parseVersionParts(clean1);
-  const parts2 = parseVersionParts(clean2);
-  
-  // 比較每個部分
+
+  // 分離主版本號和 pre-release 標識
+  const { base: base1, prerelease: pre1 } = splitPrerelease(clean1);
+  const { base: base2, prerelease: pre2 } = splitPrerelease(clean2);
+
+  // 比較主版本號數字部分
+  const parts1 = parseVersionParts(base1);
+  const parts2 = parseVersionParts(base2);
   const maxLength = Math.max(parts1.length, parts2.length);
-  
+
   for (let i = 0; i < maxLength; i++) {
     const part1 = parts1[i] || 0;
     const part2 = parts2[i] || 0;
-    
+
     if (part1 < part2) return -1;
     if (part1 > part2) return 1;
   }
-  
+
+  // 主版本號相等時，比較 pre-release
+  // 根據 semver：有 pre-release 的版本 < 無 pre-release 的同版本
+  if (pre1 && !pre2) return -1;
+  if (!pre1 && pre2) return 1;
+  if (pre1 && pre2) return comparePrereleaseIdentifiers(pre1, pre2);
+
   return 0;
 }
 
@@ -63,8 +71,9 @@ export function isVersionLess(currentVersion: string, maximumVersion: string): b
 export function isVersionInAffectedRange(currentVersion: string, affectedRange: string): boolean {
   if (!affectedRange || !currentVersion) return false;
   
-  // 移除多餘空白並分割條件
-  const conditions = affectedRange.trim().split(/\s+/);
+  // 正規化：移除運算符與版本號之間的空格，再分割條件
+  const normalized = affectedRange.trim().replace(/([<>=!]+)\s+/g, '$1');
+  const conditions = normalized.split(/\s+/);
   
   for (let i = 0; i < conditions.length; i++) {
     const condition = conditions[i];
@@ -159,12 +168,64 @@ export function isVulnerabilityFixed(
  */
 function cleanVersion(version: string): string {
   if (!version) return '0.0.0';
-  
-  // 移除常見的前綴符號
+
   return version
     .replace(/^[v^~>=<]+/, '') // 移除 v, ^, ~, >=, <, > 等前綴
-    .replace(/[+\-].*$/, '')   // 移除 build metadata 和 pre-release 標識符
+    .replace(/\+.*$/, '')      // 只移除 build metadata（+ 之後），保留 pre-release（-）
     .trim();
+}
+
+/**
+ * 分離主版本號和 pre-release 標識
+ * "1.0.0-alpha.1" → { base: "1.0.0", prerelease: "alpha.1" }
+ * "1.0.0" → { base: "1.0.0", prerelease: undefined }
+ */
+function splitPrerelease(version: string): { base: string; prerelease: string | undefined } {
+  const hyphenIndex = version.indexOf('-');
+  if (hyphenIndex === -1) {
+    return { base: version, prerelease: undefined };
+  }
+  return {
+    base: version.substring(0, hyphenIndex),
+    prerelease: version.substring(hyphenIndex + 1)
+  };
+}
+
+/**
+ * 比較 pre-release 標識符（依 semver 規範）
+ * 數字段按數值比較，非數字段按字典序比較，數字 < 非數字
+ */
+function comparePrereleaseIdentifiers(pre1: string, pre2: string): number {
+  const ids1 = pre1.split('.');
+  const ids2 = pre2.split('.');
+  const maxLen = Math.max(ids1.length, ids2.length);
+
+  for (let i = 0; i < maxLen; i++) {
+    // 較短的 pre-release 排在前面（fewer identifiers = lower precedence）
+    if (i >= ids1.length) return -1;
+    if (i >= ids2.length) return 1;
+
+    const a = ids1[i];
+    const b = ids2[i];
+    const aNum = /^\d+$/.test(a) ? parseInt(a, 10) : undefined;
+    const bNum = /^\d+$/.test(b) ? parseInt(b, 10) : undefined;
+
+    // 都是數字：按數值比較
+    if (aNum !== undefined && bNum !== undefined) {
+      if (aNum < bNum) return -1;
+      if (aNum > bNum) return 1;
+    }
+    // 數字 < 非數字
+    else if (aNum !== undefined) return -1;
+    else if (bNum !== undefined) return 1;
+    // 都是字串：字典序比較
+    else {
+      if (a < b) return -1;
+      if (a > b) return 1;
+    }
+  }
+
+  return 0;
 }
 
 /**
@@ -174,7 +235,6 @@ function parseVersionParts(version: string): number[] {
   return version
     .split('.')
     .map(part => {
-      // 處理包含非數字字符的部分（如 "1.0.0-alpha"）
       const numMatch = part.match(/^\d+/);
       return numMatch ? parseInt(numMatch[0], 10) : 0;
     });

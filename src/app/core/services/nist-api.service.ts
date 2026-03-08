@@ -676,28 +676,70 @@ export class NistApiService implements OnDestroy {
    * 判斷 CPE 名稱是否與套件相關
    */
   private isCpeRelevant(cpeName: string, packageName: string): boolean {
-    const lowerCpeName = cpeName.toLowerCase();
-    const lowerPackageName = packageName.toLowerCase();
-    
-    // 基本匹配：檢查 CPE 名稱中是否包含套件名稱
-    return lowerCpeName.includes(lowerPackageName) ||
-           lowerPackageName.includes(lowerCpeName.split(':')[4] || '') ||
-           this.fuzzyMatch(lowerCpeName, lowerPackageName);
+    // CPE 2.3 格式: cpe:2.3:a:vendor:product:version:update:edition:language:sw_edition:target_sw:target_hw:other
+    const cpeParts = cpeName.toLowerCase().split(':');
+    const cpeProduct = cpeParts[4] || '';
+    const cpeVendor = cpeParts[3] || '';
+    const cpeTargetSw = cpeParts[10] || '*';
+
+    // 生態系統過濾：排除明確非 npm/node.js 的 CPE
+    const nonNpmTargets = ['python', 'ruby', 'php', '.net', 'go', 'rust'];
+    const nonNpmExactTargets = ['java'];
+    if (cpeTargetSw !== '*' && (
+      nonNpmTargets.some(t => cpeTargetSw.includes(t)) ||
+      nonNpmExactTargets.some(t => cpeTargetSw === t)
+    )) {
+      return false;
+    }
+
+    const normalizedPackage = this.normalizeCpeName(packageName.toLowerCase());
+
+    // 精確匹配 product 欄位
+    if (this.normalizeCpeName(cpeProduct) === normalizedPackage) return true;
+
+    // 處理 scoped packages (如 @babel/helpers → helpers)
+    const unscopedName = packageName.replace(/^@[^/]+\//, '').toLowerCase();
+    if (this.normalizeCpeName(unscopedName) === this.normalizeCpeName(cpeProduct)) return true;
+
+    // 檢查 vendor:product 組合匹配 scoped package (如 @babel/core → vendor=babel, product=core)
+    if (packageName.startsWith('@')) {
+      const scopeMatch = packageName.match(/^@([^/]+)\/(.+)$/);
+      if (scopeMatch) {
+        const scope = this.normalizeCpeName(scopeMatch[1].toLowerCase());
+        const name = this.normalizeCpeName(scopeMatch[2].toLowerCase());
+        if (this.normalizeCpeName(cpeVendor) === scope && this.normalizeCpeName(cpeProduct) === name) {
+          return true;
+        }
+      }
+    }
+
+    // Fuzzy fallback：處理常見前後綴變體 (如 moment ↔ momentjs、express ↔ expressjs、node-fetch ↔ nodefetch)
+    const normalizedCpeProduct = this.normalizeCpeName(cpeProduct);
+    const jsSuffixVariants = [
+      normalizedPackage + 'js',
+      normalizedCpeProduct + 'js',
+    ];
+    if (jsSuffixVariants[0] === normalizedCpeProduct || jsSuffixVariants[1] === normalizedPackage) {
+      return true;
+    }
+    const nodePrefixVariants = [
+      'node' + normalizedPackage,
+      normalizedPackage + 'node',
+    ];
+    if (nodePrefixVariants.some(v => v === normalizedCpeProduct) ||
+        ('node' + normalizedCpeProduct === normalizedPackage) ||
+        (normalizedCpeProduct + 'node' === normalizedPackage)) {
+      return true;
+    }
+
+    return false;
   }
 
   /**
-   * 模糊匹配函數
+   * 正規化 CPE/package 名稱：統一分隔符號
    */
-  private fuzzyMatch(cpe: string, packageName: string): boolean {
-    // 簡單的模糊匹配，可以根據需要優化
-    const cpeWords = cpe.split(/[:\-_\s]/);
-    const packageWords = packageName.split(/[\-_\s]/);
-    
-    return packageWords.some(word => 
-      cpeWords.some(cpeWord => 
-        cpeWord.includes(word) || word.includes(cpeWord)
-      )
-    );
+  private normalizeCpeName(name: string): string {
+    return name.replace(/[-_.]/g, '').toLowerCase();
   }
 
   /**

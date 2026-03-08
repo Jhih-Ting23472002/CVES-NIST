@@ -21,14 +21,15 @@ import { getDatabaseConfig } from '../../core/config/database.config';
 import { LoadingOverlayComponent } from '../../shared/components/loading-overlay.component';
 import { FileParserService } from '../../core/services/file-parser.service';
 import { LocalScanService } from '../../core/services/local-scan.service';
-import { 
-  PackageInfo, 
-  Vulnerability, 
-  ScanProgress, 
-  ScanTask, 
-  ScanConfig, 
-  DEFAULT_SCAN_CONFIGS 
+import {
+  PackageInfo,
+  Vulnerability,
+  ScanProgress,
+  ScanTask,
+  ScanConfig,
+  DEFAULT_SCAN_CONFIGS
 } from '../../core/models/vulnerability.model';
+import { getUniqueSeverityCount } from '../../shared/utils/vulnerability-count-utils';
 
 @Component({
   selector: 'app-scan',
@@ -374,9 +375,7 @@ export class ScanComponent implements OnInit, OnDestroy {
   }
   
   getSeverityCount(severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'): number {
-    return this.scanResults.reduce((count, result) => {
-      return count + result.vulnerabilities.filter(v => v.severity === severity).length;
-    }, 0);
+    return getUniqueSeverityCount(this.scanResults, severity);
   }
   
   getSafePackagesCount(): number {

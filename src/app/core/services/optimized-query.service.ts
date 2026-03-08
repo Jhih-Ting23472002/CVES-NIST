@@ -1,10 +1,11 @@
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import { OptimizedCveRecord } from '../interfaces/optimized-storage.interface';
-import { 
+import {
   PackageVulnerabilityQuery,
-  VulnerabilityQueryResult 
+  VulnerabilityQueryResult
 } from '../interfaces/nvd-database.interface';
+import { compareVersions } from '../../shared/utils/version-utils';
 
 @Injectable({
   providedIn: 'root'
@@ -199,6 +200,13 @@ export class OptimizedQueryService {
             }
         }
 
+        // 生態系統過濾：若查詢指定了 ecosystem，排除不同生態系統的結果
+        if (isMatch && query.ecosystem && productInfo.ecosystem &&
+            productInfo.ecosystem !== 'unknown' &&
+            productInfo.ecosystem !== query.ecosystem) {
+          isMatch = false;
+        }
+
         if (isMatch && this.isVersionAffectedOptimized(productInfo, query.version)) {
           results.push(this.transformOptimizedCveToResult(optimizedRecord, productInfo, matchType));
         }
@@ -316,7 +324,74 @@ export class OptimizedQueryService {
     results: VulnerabilityQueryResult[],
     observer: any
   ): void {
+    // 使用 affectedProducts multiEntry 索引進行精確查詢，避免全表掃描
+    const searchKey = query.packageName.toLowerCase();
+    let index: IDBIndex;
+    try {
+      index = store.index('affectedProducts');
+    } catch {
+      // 索引不存在時回退到全表掃描
+      this.performFullScanSearch(store, query, results, observer, 'exact');
+      return;
+    }
+
+    const request = index.openCursor(IDBKeyRange.only(searchKey));
+
+    request.onsuccess = (event) => {
+      const cursor = (event.target as IDBRequest).result;
+      if (!cursor) {
+        // affectedProducts 索引可能未包含所有記錄（Worker 優化路徑不重建索引），
+        // 即使已有部分結果，仍需全表掃描以補齊未被索引的記錄
+        this.performFullScanSearch(store, query, results, observer, 'exact');
+        return;
+      }
+
+      const record = cursor.value;
+
+      if (this.isOptimizedRecord(record)) {
+        const optimizedRecord = record as OptimizedCveRecord;
+
+        for (const productInfo of optimizedRecord.optimizedProductInfo) {
+          if (this.isProductMatch(productInfo, query.packageName, 'exact')) {
+            // 生態系統過濾
+            if (query.ecosystem && productInfo.ecosystem &&
+                productInfo.ecosystem !== 'unknown' &&
+                productInfo.ecosystem !== query.ecosystem) {
+              continue;
+            }
+            if (this.isVersionAffectedOptimized(productInfo, query.version)) {
+              results.push(this.transformOptimizedCveToResult(
+                optimizedRecord,
+                productInfo,
+                'exact_match'
+              ));
+              break;
+            }
+          }
+        }
+      } else {
+        this.handleLegacyRecord(record, query, results, 'exact_match');
+      }
+
+      cursor.continue();
+    };
+
+    request.onerror = () => observer.error(request.error);
+  }
+
+  /**
+   * 全表掃描回退方法（索引不可用時使用）
+   */
+  private performFullScanSearch(
+    store: IDBObjectStore,
+    query: PackageVulnerabilityQuery,
+    results: VulnerabilityQueryResult[],
+    observer: any,
+    matchMode: 'exact' | 'fuzzy' | 'cpe' | 'combined'
+  ): void {
     const request = store.openCursor();
+    // 建立已有結果的 CVE ID 集合，避免重複
+    const existingIds = new Set(results.map(r => r.cveId));
 
     request.onsuccess = (event) => {
       const cursor = (event.target as IDBRequest).result;
@@ -326,30 +401,13 @@ export class OptimizedQueryService {
         return;
       }
 
-      const record = cursor.value;
-      
-      // 檢查是否為優化格式
-      if (this.isOptimizedRecord(record)) {
-        const optimizedRecord = record as OptimizedCveRecord;
-        
-        // 在優化產品資訊中搜尋
-        for (const productInfo of optimizedRecord.optimizedProductInfo) {
-          if (this.isProductMatch(productInfo, query.packageName, 'exact')) {
-            if (this.isVersionAffectedOptimized(productInfo, query.version)) {
-              results.push(this.transformOptimizedCveToResult(
-                optimizedRecord, 
-                productInfo, 
-                'exact_match'
-              ));
-              break; // 避免重複加入同一個 CVE
-            }
-          }
+      const matchResults = this.checkRecordForQuery(cursor.value, query);
+      for (const result of matchResults) {
+        if (!existingIds.has(result.cveId)) {
+          existingIds.add(result.cveId);
+          results.push(result);
         }
-      } else {
-        // 回退到舊格式處理
-        this.handleLegacyRecord(record, query, results, 'exact_match');
       }
-
       cursor.continue();
     };
 
@@ -365,41 +423,8 @@ export class OptimizedQueryService {
     results: VulnerabilityQueryResult[],
     observer: any
   ): void {
-    const request = store.openCursor();
-
-    request.onsuccess = (event) => {
-      const cursor = (event.target as IDBRequest).result;
-      if (!cursor) {
-        observer.next(results);
-        observer.complete();
-        return;
-      }
-
-      const record = cursor.value;
-      
-      if (this.isOptimizedRecord(record)) {
-        const optimizedRecord = record as OptimizedCveRecord;
-        
-        for (const productInfo of optimizedRecord.optimizedProductInfo) {
-          if (this.isProductMatch(productInfo, query.packageName, 'fuzzy')) {
-            if (this.isVersionAffectedOptimized(productInfo, query.version)) {
-              results.push(this.transformOptimizedCveToResult(
-                optimizedRecord, 
-                productInfo, 
-                'fuzzy_match'
-              ));
-              break;
-            }
-          }
-        }
-      } else {
-        this.handleLegacyRecord(record, query, results, 'fuzzy_match');
-      }
-
-      cursor.continue();
-    };
-
-    request.onerror = () => observer.error(request.error);
+    // 模糊搜尋無法使用索引，回退到全表掃描
+    this.performFullScanSearch(store, query, results, observer, 'fuzzy');
   }
 
   /**
@@ -411,31 +436,99 @@ export class OptimizedQueryService {
     results: VulnerabilityQueryResult[],
     observer: any
   ): void {
-    const request = store.openCursor();
+    // CPE 搜尋需要 vendor/product 分解，索引鍵無法可靠覆蓋所有情況
+    // （例如 @babel/core 在索引中存為 core，但查詢鍵為 @babel/core）
+    // 因此嘗試多個候選索引鍵，全部未命中時回退全表掃描
+    const searchKeys = this.deriveCpeSearchKeys(query.packageName);
+
+    let index: IDBIndex;
+    try {
+      index = store.index('affectedProducts');
+    } catch {
+      this.performFullScanSearch(store, query, results, observer, 'cpe');
+      return;
+    }
+
+    this.searchIndexWithMultipleKeys(index, store, searchKeys, 0, query, results, observer, 'cpe');
+  }
+
+  /**
+   * 從套件名稱衍生多個 CPE 搜尋索引鍵
+   */
+  private deriveCpeSearchKeys(packageName: string): string[] {
+    const keys = new Set<string>();
+    const lowered = packageName.toLowerCase();
+    keys.add(lowered);
+
+    // scoped package: @scope/name → 也嘗試 name 和 scope
+    const scopeMatch = packageName.match(/^@([^/]+)\/(.+)$/);
+    if (scopeMatch) {
+      keys.add(scopeMatch[2].toLowerCase()); // unscoped name
+      keys.add(scopeMatch[1].toLowerCase()); // scope as vendor
+    }
+
+    // 分隔符號變體
+    const normalized = this.normalizeName(lowered);
+    if (normalized !== lowered) {
+      keys.add(normalized);
+    }
+
+    return [...keys];
+  }
+
+  /**
+   * 依序嘗試多個索引鍵，全部未命中時回退全表掃描
+   */
+  private searchIndexWithMultipleKeys(
+    index: IDBIndex,
+    store: IDBObjectStore,
+    keys: string[],
+    keyIdx: number,
+    query: PackageVulnerabilityQuery,
+    results: VulnerabilityQueryResult[],
+    observer: any,
+    matchMode: 'cpe' | 'combined'
+  ): void {
+    if (keyIdx >= keys.length) {
+      // 所有索引鍵都試過，回退全表掃描以補齊未被索引的記錄
+      // （Worker 優化路徑可能不重建 affectedProducts 索引，與精確搜尋邏輯一致）
+      this.performFullScanSearch(store, query, results, observer, matchMode);
+      return;
+    }
+
+    const seenCveIds = new Set(results.map(r => r.cveId));
+    const request = index.openCursor(IDBKeyRange.only(keys[keyIdx]));
 
     request.onsuccess = (event) => {
       const cursor = (event.target as IDBRequest).result;
       if (!cursor) {
-        observer.next(results);
-        observer.complete();
+        // 當前鍵用完，嘗試下一個鍵
+        this.searchIndexWithMultipleKeys(index, store, keys, keyIdx + 1, query, results, observer, matchMode);
         return;
       }
 
       const record = cursor.value;
-      
+
       if (this.isOptimizedRecord(record)) {
         const optimizedRecord = record as OptimizedCveRecord;
-        
-        for (const productInfo of optimizedRecord.optimizedProductInfo) {
-          // 檢查 CPE 資訊
-          if (productInfo.cpeInfo && this.isCpeMatch(productInfo.cpeInfo.cpeName, query.packageName)) {
-            if (this.isVersionAffectedOptimized(productInfo, query.version)) {
-              results.push(this.transformOptimizedCveToResult(
-                optimizedRecord, 
-                productInfo, 
-                'cpe_match'
-              ));
-              break;
+
+        if (!seenCveIds.has(optimizedRecord.id)) {
+          for (const productInfo of optimizedRecord.optimizedProductInfo) {
+            if (productInfo.cpeInfo && this.isCpeMatch(productInfo.cpeInfo.cpeName, query.packageName)) {
+              if (query.ecosystem && productInfo.ecosystem &&
+                  productInfo.ecosystem !== 'unknown' &&
+                  productInfo.ecosystem !== query.ecosystem) {
+                continue;
+              }
+              if (this.isVersionAffectedOptimized(productInfo, query.version)) {
+                results.push(this.transformOptimizedCveToResult(
+                  optimizedRecord,
+                  productInfo,
+                  'cpe_match'
+                ));
+                seenCveIds.add(optimizedRecord.id);
+                break;
+              }
             }
           }
         }
@@ -458,44 +551,86 @@ export class OptimizedQueryService {
     results: VulnerabilityQueryResult[],
     observer: any
   ): void {
-    const request = store.openCursor();
+    // 綜合搜尋：先用索引做精確+CPE（含 scoped 變體），無結果時回退全表掃描
+    const searchKeys = this.deriveCpeSearchKeys(query.packageName);
 
-    request.onsuccess = (event) => {
-      const cursor = (event.target as IDBRequest).result;
-      if (!cursor) {
+    let index: IDBIndex;
+    try {
+      index = store.index('affectedProducts');
+    } catch {
+      this.performFullScanSearch(store, query, results, observer, 'combined');
+      return;
+    }
+
+    this.searchIndexCombined(index, store, searchKeys, 0, query, results, observer);
+  }
+
+  /**
+   * 綜合搜尋的多鍵索引查詢
+   */
+  private searchIndexCombined(
+    index: IDBIndex,
+    store: IDBObjectStore,
+    keys: string[],
+    keyIdx: number,
+    query: PackageVulnerabilityQuery,
+    results: VulnerabilityQueryResult[],
+    observer: any
+  ): void {
+    if (keyIdx >= keys.length) {
+      if (results.length === 0) {
+        // 索引全部未命中，回退全表掃描（含模糊匹配）
+        this.performFullScanSearch(store, query, results, observer, 'combined');
+      } else {
         observer.next(results);
         observer.complete();
+      }
+      return;
+    }
+
+    const seenCveIds = new Set(results.map(r => r.cveId));
+    const indexRequest = index.openCursor(IDBKeyRange.only(keys[keyIdx]));
+
+    indexRequest.onsuccess = (event) => {
+      const cursor = (event.target as IDBRequest).result;
+      if (!cursor) {
+        this.searchIndexCombined(index, store, keys, keyIdx + 1, query, results, observer);
         return;
       }
 
       const record = cursor.value;
-      
+
       if (this.isOptimizedRecord(record)) {
         const optimizedRecord = record as OptimizedCveRecord;
-        
-        for (const productInfo of optimizedRecord.optimizedProductInfo) {
-          let matchType = '';
-          let isMatch = false;
 
-          // 嘗試多種匹配方式
-          if (this.isProductMatch(productInfo, query.packageName, 'exact')) {
-            isMatch = true;
-            matchType = 'exact_match';
-          } else if (productInfo.cpeInfo && this.isCpeMatch(productInfo.cpeInfo.cpeName, query.packageName)) {
-            isMatch = true;
-            matchType = 'cpe_match';
-          } else if (this.isProductMatch(productInfo, query.packageName, 'fuzzy')) {
-            isMatch = true;
-            matchType = 'fuzzy_match';
-          }
+        if (!seenCveIds.has(optimizedRecord.id)) {
+          for (const productInfo of optimizedRecord.optimizedProductInfo) {
+            let matchType = '';
+            let isMatch = false;
 
-          if (isMatch && this.isVersionAffectedOptimized(productInfo, query.version)) {
-            results.push(this.transformOptimizedCveToResult(
-              optimizedRecord, 
-              productInfo, 
-              matchType
-            ));
-            break;
+            if (this.isProductMatch(productInfo, query.packageName, 'exact')) {
+              isMatch = true;
+              matchType = 'exact_match';
+            } else if (productInfo.cpeInfo && this.isCpeMatch(productInfo.cpeInfo.cpeName, query.packageName)) {
+              isMatch = true;
+              matchType = 'cpe_match';
+            }
+
+            if (isMatch && query.ecosystem && productInfo.ecosystem &&
+                productInfo.ecosystem !== 'unknown' &&
+                productInfo.ecosystem !== query.ecosystem) {
+              isMatch = false;
+            }
+
+            if (isMatch && this.isVersionAffectedOptimized(productInfo, query.version)) {
+              results.push(this.transformOptimizedCveToResult(
+                optimizedRecord,
+                productInfo,
+                matchType
+              ));
+              seenCveIds.add(optimizedRecord.id);
+              break;
+            }
           }
         }
       } else {
@@ -505,7 +640,7 @@ export class OptimizedQueryService {
       cursor.continue();
     };
 
-    request.onerror = () => observer.error(request.error);
+    indexRequest.onerror = () => observer.error(indexRequest.error);
   }
 
   /**
@@ -593,29 +728,28 @@ export class OptimizedQueryService {
    * 檢查版本是否滿足約束
    */
   private satisfiesConstraint(version: string, constraint: any): boolean {
-    const versionParts = this.parseVersion(version);
-    const constraintParts = this.parseVersion(constraint.version);
-    const comparison = this.compareVersions(versionParts, constraintParts);
+    const cmp = compareVersions(version, constraint.version);
 
     switch (constraint.type) {
       case 'lt':
-        return comparison < 0;
+        return cmp < 0;
       case 'lte':
-        return comparison <= 0;
+        return cmp <= 0;
       case 'gt':
-        return comparison > 0;
+        return cmp > 0;
       case 'gte':
-        return comparison >= 0;
+        return cmp >= 0;
       case 'eq':
-        return comparison === 0;
-      case 'range':
-        const startComparison = this.compareVersions(versionParts, this.parseVersion(constraint.version));
-        const endComparison = this.compareVersions(versionParts, this.parseVersion(constraint.endVersion));
-        
-        const startSatisfied = constraint.includeStart ? startComparison >= 0 : startComparison > 0;
-        const endSatisfied = constraint.includeEnd ? endComparison <= 0 : endComparison < 0;
-        
+        return cmp === 0;
+      case 'range': {
+        const startCmp = compareVersions(version, constraint.version);
+        const endCmp = compareVersions(version, constraint.endVersion);
+
+        const startSatisfied = constraint.includeStart ? startCmp >= 0 : startCmp > 0;
+        const endSatisfied = constraint.includeEnd ? endCmp <= 0 : endCmp < 0;
+
         return startSatisfied && endSatisfied;
+      }
       default:
         return true;
     }
@@ -626,11 +760,50 @@ export class OptimizedQueryService {
    */
   private isCpeMatch(cpeName: string, packageName: string): boolean {
     if (!cpeName) return false;
-    
-    const lowerCpeName = cpeName.toLowerCase();
-    const lowerPackageName = packageName.toLowerCase();
-    
-    return lowerCpeName.includes(lowerPackageName);
+
+    // CPE 2.3 格式: cpe:2.3:a:vendor:product:version:...
+    const cpeParts = cpeName.toLowerCase().split(':');
+    const cpeProduct = cpeParts[4] || '';
+    const cpeVendor = cpeParts[3] || '';
+
+    const normalizedPackage = this.normalizeName(packageName.toLowerCase());
+
+    // 精確匹配 product 欄位
+    if (this.normalizeName(cpeProduct) === normalizedPackage) return true;
+
+    // 處理 scoped packages (如 @babel/helpers → helpers)
+    const unscopedName = packageName.replace(/^@[^/]+\//, '').toLowerCase();
+    const normalizedUnscoped = this.normalizeName(unscopedName);
+    if (this.normalizeName(cpeProduct) === normalizedUnscoped) return true;
+
+    // 檢查 vendor:product 組合是否匹配 scoped package (如 @babel/core → vendor=babel, product=core)
+    if (packageName.startsWith('@')) {
+      const scopeMatch = packageName.match(/^@([^/]+)\/(.+)$/);
+      if (scopeMatch) {
+        const scope = this.normalizeName(scopeMatch[1].toLowerCase());
+        const name = this.normalizeName(scopeMatch[2].toLowerCase());
+        if (this.normalizeName(cpeVendor) === scope && this.normalizeName(cpeProduct) === name) {
+          return true;
+        }
+      }
+    }
+
+    // 降級匹配：product 欄位的受控模糊比對（處理 moment/momentjs 等後綴變體）
+    const normalizedCpeProduct = this.normalizeName(cpeProduct);
+    const lenDiff = Math.abs(normalizedCpeProduct.length - normalizedPackage.length);
+    if (lenDiff > 0 && lenDiff <= 3 &&
+        (normalizedCpeProduct.includes(normalizedPackage) || normalizedPackage.includes(normalizedCpeProduct))) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * 正規化名稱：統一分隔符號以便比較
+   */
+  private normalizeName(name: string): string {
+    return name.replace(/[-_.]/g, '').toLowerCase();
   }
 
   /**
@@ -671,21 +844,37 @@ export class OptimizedQueryService {
    */
   private extractAffectedVersionsFromOptimized(productInfo: any): string[] {
     const versions: string[] = [];
-    
+
     if (productInfo.versionRanges) {
       for (const range of productInfo.versionRanges) {
         for (const constraint of range.versionConstraints) {
-          if (constraint.type === 'lt' || constraint.type === 'lte') {
-            versions.push(`< ${constraint.version}`);
-          } else if (constraint.type === 'range') {
-            versions.push(`${constraint.version} - ${constraint.endVersion}`);
-          } else if (constraint.type === 'eq') {
-            versions.push(constraint.version);
+          switch (constraint.type) {
+            case 'lt':
+              versions.push(`<${constraint.version}`);
+              break;
+            case 'lte':
+              versions.push(`<=${constraint.version}`);
+              break;
+            case 'gt':
+              versions.push(`>${constraint.version}`);
+              break;
+            case 'gte':
+              versions.push(`>=${constraint.version}`);
+              break;
+            case 'range': {
+              const start = constraint.includeStart ? '>=' : '>';
+              const end = constraint.includeEnd ? '<=' : '<';
+              versions.push(`${start}${constraint.version} ${end}${constraint.endVersion}`);
+              break;
+            }
+            case 'eq':
+              versions.push(constraint.version);
+              break;
           }
         }
       }
     }
-    
+
     return versions;
   }
 
@@ -693,17 +882,68 @@ export class OptimizedQueryService {
    * 從優化產品資訊提取修復版本
    */
   private extractFixedVersionFromOptimized(productInfo: any): string | undefined {
+    const candidates: string[] = [];
+
     if (productInfo.versionRanges) {
       for (const range of productInfo.versionRanges) {
         for (const constraint of range.versionConstraints) {
-          if (constraint.type === 'lt' || constraint.type === 'lte') {
-            return constraint.version; // < x.y.z or <= x.y.z indicates x.y.z is a fixed version
+          if (constraint.type === 'lt') {
+            // < x.y.z：x.y.z 本身就是第一個安全版本
+            candidates.push(constraint.version);
+          } else if (constraint.type === 'lte') {
+            // <= x.y.z：x.y.z 仍受影響，安全版本是下一個 patch
+            const next = this.getNextPatchVersion(constraint.version);
+            if (next) {
+              candidates.push(next);
+            }
+          } else if (constraint.type === 'range' && constraint.endVersion) {
+            if (constraint.includeEnd) {
+              // 包含 endVersion → endVersion 仍受影響
+              const next = this.getNextPatchVersion(constraint.endVersion);
+              if (next) {
+                candidates.push(next);
+              }
+            } else {
+              // 不包含 endVersion → endVersion 就是安全版本
+              candidates.push(constraint.endVersion);
+            }
           }
         }
       }
     }
-    
+
+    // 回傳最低的修復版本
+    return this.getLowestVersion(candidates);
+  }
+
+  /**
+   * 取得下一個補丁版本 (簡化實作)
+   */
+  private getNextPatchVersion(version: string): string | undefined {
+    try {
+      const parts = version.split('.');
+      if (parts.length >= 3) {
+        const patch = parseInt(parts[2], 10) + 1;
+        return `${parts[0]}.${parts[1]}.${patch}`;
+      } else if (parts.length === 2) {
+        return `${parts[0]}.${parts[1]}.1`;
+      } else if (parts.length === 1) {
+        return `${parts[0]}.0.1`;
+      }
+    } catch (error) {
+      console.warn(`無法解析版本號: ${version}`, error);
+    }
     return undefined;
+  }
+
+  /**
+   * 取得最低版本
+   */
+  private getLowestVersion(versions: string[]): string | undefined {
+    if (versions.length === 0) return undefined;
+    return versions.reduce((lowest, current) => {
+      return compareVersions(current, lowest) < 0 ? current : lowest;
+    });
   }
 
   /**
@@ -752,26 +992,4 @@ export class OptimizedQueryService {
     return undefined;
   }
 
-  // 重用現有的版本解析和比較方法
-  private parseVersion(version: string): number[] {
-    return version.split(/[.-]/).map(part => {
-      const num = parseInt(part, 10);
-      return isNaN(num) ? 0 : num;
-    });
-  }
-
-  private compareVersions(a: number[], b: number[]): number {
-    const maxLength = Math.max(a.length, b.length);
-    
-    for (let i = 0; i < maxLength; i++) {
-      const aPart = a[i] || 0;
-      const bPart = b[i] || 0;
-      
-      if (aPart !== bPart) {
-        return aPart - bPart;
-      }
-    }
-    
-    return 0;
-  }
 }

@@ -275,7 +275,8 @@ export class LocalScanService {
     const query: PackageVulnerabilityQuery = {
       packageName,
       version,
-      searchType: 'exact' // 預設使用精確搜尋
+      searchType: 'exact', // 預設使用精確搜尋
+      ecosystem: 'npm' // package.json 來源，過濾非 npm 生態系統
     };
 
     console.log(`[LocalScan] 開始掃描套件: ${packageName}@${version || 'latest'}`);
@@ -637,9 +638,9 @@ export class LocalScanService {
    */
   advancedScanPackage(packageName: string, version?: string): Observable<Vulnerability[]> {
     const queries: PackageVulnerabilityQuery[] = [
-      { packageName, version, searchType: 'exact' },
-      { packageName, version, searchType: 'fuzzy' },
-      { packageName, version, searchType: 'cpe' }
+      { packageName, version, searchType: 'exact', ecosystem: 'npm' },
+      { packageName, version, searchType: 'fuzzy', ecosystem: 'npm' },
+      { packageName, version, searchType: 'cpe', ecosystem: 'npm' }
     ];
 
     console.log(`[LocalScan] 開始進階掃描套件: ${packageName}@${version || 'latest'}`);

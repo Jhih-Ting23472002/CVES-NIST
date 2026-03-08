@@ -1,6 +1,11 @@
 import { Injectable } from '@angular/core';
 import { saveAs } from 'file-saver';
 import { PackageInfo, Vulnerability } from '../models/vulnerability.model';
+import {
+  getUniqueTotalVulnerabilities,
+  getUniqueSeverityBreakdown,
+  getTotalAffectedCombinations
+} from '../../shared/utils/vulnerability-count-utils';
 import { VexAnalysisService } from './vex-analysis.service';
 import { LicenseAnalysisService } from './license-analysis.service';
 import { SbomValidatorService, ValidationResult } from './sbom-validator.service';
@@ -489,7 +494,7 @@ export class ReportExportService {
   }
 
   private getTotalVulnerabilities(scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[]): number {
-    return scanResults.reduce((total, result) => total + result.vulnerabilities.length, 0);
+    return getUniqueTotalVulnerabilities(scanResults);
   }
 
   private getSeverityBreakdown(scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[]): {
@@ -499,32 +504,27 @@ export class ReportExportService {
     low: number;
     safe: number;
   } {
-    const breakdown = { critical: 0, high: 0, medium: 0, low: 0, safe: 0 };
+    const uniqueBreakdown = getUniqueSeverityBreakdown(scanResults);
+    const safeCount = scanResults.filter(r => r.vulnerabilities.length === 0).length;
 
-    scanResults.forEach(result => {
-      if (result.vulnerabilities.length === 0) {
-        breakdown.safe += 1;
-      } else {
-        result.vulnerabilities.forEach(vuln => {
-          switch (vuln.severity) {
-            case 'CRITICAL': breakdown.critical += 1; break;
-            case 'HIGH': breakdown.high += 1; break;
-            case 'MEDIUM': breakdown.medium += 1; break;
-            case 'LOW': breakdown.low += 1; break;
-          }
-        });
-      }
-    });
-
-    return breakdown;
+    return {
+      ...uniqueBreakdown,
+      safe: safeCount
+    };
   }
 
   private generateScanSummary(scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[]): string {
     const totalPackages = scanResults.length;
     const vulnerablePackages = scanResults.filter(r => r.vulnerabilities.length > 0).length;
     const safePackages = totalPackages - vulnerablePackages;
+    const uniqueCount = getUniqueTotalVulnerabilities(scanResults);
+    const combinationCount = getTotalAffectedCombinations(scanResults);
 
-    return `掃描了 ${totalPackages} 個套件，其中 ${vulnerablePackages} 個套件存在漏洞，${safePackages} 個套件安全。`;
+    let summary = `掃描了 ${totalPackages} 個套件，其中 ${vulnerablePackages} 個套件存在漏洞，${safePackages} 個套件安全。`;
+    if (combinationCount > uniqueCount) {
+      summary += `共發現 ${uniqueCount} 個唯一漏洞，影響 ${combinationCount} 個套件-漏洞組合。`;
+    }
+    return summary;
   }
 
   private generateRiskAnalysis(scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[]): string[] {
@@ -780,7 +780,10 @@ export class ReportExportService {
             };
             const inferredLicense = commonLicenses[pkg.name] || 'NOASSERTION';
             spdxPackage.licenseConcluded = inferredLicense;
-            spdxPackage.licenseDeclared = inferredLicense === 'NOASSERTION' ? 'NOASSERTION' : `${inferredLicense} (inferred)`;
+            spdxPackage.licenseDeclared = 'NOASSERTION';
+            if (inferredLicense !== 'NOASSERTION') {
+              spdxPackage.licenseComments = `License "${inferredLicense}" was inferred from known package metadata`;
+            }
           }
 
           return spdxPackage;
@@ -814,59 +817,71 @@ export class ReportExportService {
     packages: PackageInfo[],
     scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[]
   ): any[] {
-    const vulnerabilities: any[] = [];
+    // 依 CVE ID 合併，避免重複條目
+    const vulnMap = new Map<string, any>();
 
     scanResults.forEach(result => {
-      const pkg = packages.find(p => p.name === result.packageName || 
-        p.packageKey === result.packageName || 
+      const pkg = packages.find(p => p.name === result.packageName ||
+        p.packageKey === result.packageName ||
         `${p.name}@${p.version}` === result.packageName);
-      
+
       if (!pkg) return;
 
       result.vulnerabilities.forEach(vuln => {
-        vulnerabilities.push({
-          id: vuln.cveId,
-          source: {
-            name: 'NVD',
-            url: `https://nvd.nist.gov/vuln/detail/${vuln.cveId}`
-          },
-          description: vuln.description,
-          published: vuln.publishedDate,
-          updated: vuln.lastModifiedDate,
-          ratings: [
+        const existing = vulnMap.get(vuln.cveId);
+        const affectEntry = {
+          ref: this.generatePackageRef(pkg),
+          versions: [
             {
-              source: {
-                name: 'CVSS',
-                url: 'https://www.first.org/cvss/'
-              },
-              score: vuln.cvssScore,
-              severity: vuln.severity.toLowerCase(),
-              method: 'CVSSv3',
-              vector: vuln.cvssVector || ''
+              version: pkg.version,
+              status: 'affected'
             }
-          ],
-          affects: [
-            {
-              ref: this.generatePackageRef(pkg),
-              versions: [
-                {
-                  version: pkg.version,
-                  status: 'affected'
-                }
-              ]
-            }
-          ],
-          references: vuln.references.map(ref => ({
-            id: ref,
+          ]
+        };
+
+        if (existing) {
+          // 同一 CVE 影響多個套件時，合併 affects 陣列
+          const alreadyAffected = existing.affects.some(
+            (a: any) => a.ref === affectEntry.ref
+          );
+          if (!alreadyAffected) {
+            existing.affects.push(affectEntry);
+          }
+        } else {
+          vulnMap.set(vuln.cveId, {
+            id: vuln.cveId,
             source: {
-              url: ref
-            }
-          }))
-        });
+              name: 'NVD',
+              url: `https://nvd.nist.gov/vuln/detail/${vuln.cveId}`
+            },
+            description: vuln.description,
+            published: vuln.publishedDate,
+            updated: vuln.lastModifiedDate,
+            ratings: [
+              {
+                source: {
+                  name: 'CVSS',
+                  url: 'https://www.first.org/cvss/'
+                },
+                score: vuln.cvssScore,
+                severity: vuln.severity.toLowerCase(),
+                method: 'CVSSv3',
+                vector: vuln.cvssVector || ''
+              }
+            ],
+            affects: [affectEntry],
+            references: vuln.references.map(ref => ({
+              id: ref,
+              source: {
+                url: ref
+              }
+            }))
+          });
+        }
       });
     });
 
-    return vulnerabilities;
+    return Array.from(vulnMap.values());
   }
 
   /**
@@ -876,53 +891,64 @@ export class ReportExportService {
     packages: PackageInfo[],
     scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[]
   ): any[] {
-    const vulnerabilities: any[] = [];
+    // 依 CVE ID 合併，避免重複條目
+    const vulnMap = new Map<string, any>();
 
     scanResults.forEach(result => {
-      const pkg = packages.find(p => p.name === result.packageName || 
-        p.packageKey === result.packageName || 
+      const pkg = packages.find(p => p.name === result.packageName ||
+        p.packageKey === result.packageName ||
         `${p.name}@${p.version}` === result.packageName);
-      
+
       if (!pkg) return;
 
       result.vulnerabilities.forEach(vuln => {
-        vulnerabilities.push({
-          id: vuln.cveId,
-          description: vuln.description,
-          published: vuln.publishedDate,
-          modified: vuln.lastModifiedDate,
-          withdrawn: null,
-          affects: [
-            {
-              spdxElementId: this.findPackageSpdxId(packages, pkg),
-              versionInfo: pkg.version
-            }
-          ],
-          properties: [
-            {
-              name: 'cvss:3.0:score',
-              value: vuln.cvssScore.toString()
-            },
-            {
-              name: 'cvss:3.0:severity',
-              value: vuln.severity
-            }
-          ],
-          externalReferences: [
-            {
-              type: 'advisory',
-              locator: `https://nvd.nist.gov/vuln/detail/${vuln.cveId}`
-            },
-            ...vuln.references.map(ref => ({
-              type: 'other',
-              locator: ref
-            }))
-          ]
-        });
+        const existing = vulnMap.get(vuln.cveId);
+        const affectEntry = {
+          spdxElementId: this.findPackageSpdxId(packages, pkg),
+          versionInfo: pkg.version
+        };
+
+        if (existing) {
+          // 同一 CVE 影響多個套件時，合併 affects 陣列
+          const alreadyAffected = existing.affects.some(
+            (a: any) => a.spdxElementId === affectEntry.spdxElementId
+          );
+          if (!alreadyAffected) {
+            existing.affects.push(affectEntry);
+          }
+        } else {
+          vulnMap.set(vuln.cveId, {
+            id: vuln.cveId,
+            description: vuln.description,
+            published: vuln.publishedDate,
+            modified: vuln.lastModifiedDate,
+            affects: [affectEntry],
+            properties: [
+              {
+                name: 'cvss:3.0:score',
+                value: vuln.cvssScore.toString()
+              },
+              {
+                name: 'cvss:3.0:severity',
+                value: vuln.severity
+              }
+            ],
+            externalReferences: [
+              {
+                type: 'advisory',
+                locator: `https://nvd.nist.gov/vuln/detail/${vuln.cveId}`
+              },
+              ...vuln.references.map(ref => ({
+                type: 'other',
+                locator: ref
+              }))
+            ]
+          });
+        }
       });
     });
 
-    return vulnerabilities;
+    return Array.from(vulnMap.values());
   }
 
   /**
@@ -1404,21 +1430,43 @@ export class ReportExportService {
     packages: PackageInfo[],
     scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[]
   ): string {
-    const vulnerableResults = scanResults.filter(result => result.vulnerabilities.length > 0);
-    
+    // 合併同一套件的結果，並對 CVE 去重
+    const mergedResultsMap = new Map<string, {packageName: string, vulnerabilities: Vulnerability[]}>();
+    for (const result of scanResults) {
+      const existing = mergedResultsMap.get(result.packageName);
+      if (existing) {
+        existing.vulnerabilities.push(...result.vulnerabilities);
+      } else {
+        mergedResultsMap.set(result.packageName, {
+          packageName: result.packageName,
+          vulnerabilities: [...result.vulnerabilities]
+        });
+      }
+    }
+
+    const vulnerableResults = Array.from(mergedResultsMap.values())
+      .map(result => ({
+        ...result,
+        // 依 cveId 去重，保留第一次出現的漏洞物件
+        vulnerabilities: result.vulnerabilities.filter(
+          (vuln, idx, arr) => arr.findIndex(v => v.cveId === vuln.cveId) === idx
+        )
+      }))
+      .filter(result => result.vulnerabilities.length > 0);
+
     if (vulnerableResults.length === 0) {
       return '';
     }
 
     const tableRows = vulnerableResults.map(result => {
-      const packageInfo = packages.find(p => p.name === result.packageName || 
-        p.packageKey === result.packageName || 
+      const packageInfo = packages.find(p => p.name === result.packageName ||
+        p.packageKey === result.packageName ||
         `${p.name}@${p.version}` === result.packageName);
+      const rowSpan = result.vulnerabilities.length;
 
       return result.vulnerabilities.map((vuln, index) => {
         const isFirstRow = index === 0;
-        const rowSpan = result.vulnerabilities.length;
-        
+
         return `
           <tr>
             ${isFirstRow ? `
@@ -1430,8 +1478,8 @@ export class ReportExportService {
             </td>
             ${isFirstRow ? `
               <td class="version-cell" rowspan="${rowSpan}">${packageInfo?.version || 'unknown'}</td>
-              <td class="version-cell" rowspan="${rowSpan}">${vuln.fixedVersion || '尚無修復版本'}</td>
             ` : ''}
+            <td class="version-cell">${vuln.fixedVersion || '尚無修復版本'}</td>
             <td class="title-cell">
               <div class="description">${vuln.description.substring(0, 100)}${vuln.description.length > 100 ? '...' : ''}</div>
               <div class="cve-link">
@@ -2069,59 +2117,31 @@ export class ReportExportService {
     packages: PackageInfo[],
     scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[]
   ): any[] {
-    const vulnerabilities: any[] = [];
+    // 依 CVE ID 合併，避免重複條目
+    const vulnMap = new Map<string, any>();
 
     scanResults.forEach(result => {
-      const pkg = packages.find(p => p.name === result.packageName || 
-        p.packageKey === result.packageName || 
+      const pkg = packages.find(p => p.name === result.packageName ||
+        p.packageKey === result.packageName ||
         `${p.name}@${p.version}` === result.packageName);
-      
+
       if (!pkg) return;
 
       result.vulnerabilities.forEach(vuln => {
-        const vulnerability: any = {
-          id: vuln.cveId,
-          source: {
-            name: 'NVD',
-            url: `https://nvd.nist.gov/vuln/detail/${vuln.cveId}`
-          },
-          description: vuln.description,
-          published: vuln.publishedDate,
-          updated: vuln.lastModifiedDate,
-          ratings: [
+        const existing = vulnMap.get(vuln.cveId);
+        const affectEntry: any = {
+          ref: this.generatePackageRef(pkg),
+          versions: [
             {
-              source: {
-                name: 'CVSS',
-                url: 'https://www.first.org/cvss/'
-              },
-              score: vuln.cvssScore,
-              severity: vuln.severity.toLowerCase(),
-              method: 'CVSSv3',
-              vector: vuln.cvssVector || ''
+              version: pkg.version,
+              status: 'affected'
             }
-          ],
-          affects: [
-            {
-              ref: this.generatePackageRef(pkg),
-              versions: [
-                {
-                  version: pkg.version,
-                  status: 'affected'
-                }
-              ]
-            }
-          ],
-          references: vuln.references.map(ref => ({
-            id: ref,
-            source: {
-              url: ref
-            }
-          }))
+          ]
         };
 
-        // 添加 VEX 分析結果
+        // 將 VEX 分析放入 affectEntry，保留每個套件各自的狀態
         if (vuln.vexStatus) {
-          vulnerability.analysis = {
+          affectEntry.analysis = {
             state: vuln.vexStatus,
             justification: vuln.vexJustification || undefined,
             response: vuln.vexStatus === 'fixed' ? ['will_not_fix'] : undefined,
@@ -2129,11 +2149,50 @@ export class ReportExportService {
           };
         }
 
-        vulnerabilities.push(vulnerability);
+        if (existing) {
+          const alreadyAffected = existing.affects.some(
+            (a: any) => a.ref === affectEntry.ref
+          );
+          if (!alreadyAffected) {
+            existing.affects.push(affectEntry);
+          }
+        } else {
+          const vulnerability: any = {
+            id: vuln.cveId,
+            source: {
+              name: 'NVD',
+              url: `https://nvd.nist.gov/vuln/detail/${vuln.cveId}`
+            },
+            description: vuln.description,
+            published: vuln.publishedDate,
+            updated: vuln.lastModifiedDate,
+            ratings: [
+              {
+                source: {
+                  name: 'CVSS',
+                  url: 'https://www.first.org/cvss/'
+                },
+                score: vuln.cvssScore,
+                severity: vuln.severity.toLowerCase(),
+                method: 'CVSSv3',
+                vector: vuln.cvssVector || ''
+              }
+            ],
+            affects: [affectEntry],
+            references: vuln.references.map(ref => ({
+              id: ref,
+              source: {
+                url: ref
+              }
+            }))
+          };
+
+          vulnMap.set(vuln.cveId, vulnerability);
+        }
       });
     });
 
-    return vulnerabilities;
+    return Array.from(vulnMap.values());
   }
 
   /**
@@ -2143,72 +2202,81 @@ export class ReportExportService {
     packages: PackageInfo[],
     scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[]
   ): any[] {
-    const vulnerabilities: any[] = [];
+    // 依 CVE ID 合併，避免重複條目
+    const vulnMap = new Map<string, any>();
 
     scanResults.forEach(result => {
-      const pkg = packages.find(p => p.name === result.packageName || 
-        p.packageKey === result.packageName || 
+      const pkg = packages.find(p => p.name === result.packageName ||
+        p.packageKey === result.packageName ||
         `${p.name}@${p.version}` === result.packageName);
-      
+
       if (!pkg) return;
 
       result.vulnerabilities.forEach(vuln => {
-        const vulnerability: any = {
-          id: vuln.cveId,
-          description: vuln.description,
-          published: vuln.publishedDate,
-          modified: vuln.lastModifiedDate,
-          withdrawn: null,
-          affects: [
-            {
-              spdxElementId: this.findPackageSpdxId(packages, pkg),
-              versionInfo: pkg.version
-            }
-          ],
-          properties: [
-            {
-              name: 'cvss:3.0:score',
-              value: vuln.cvssScore.toString()
-            },
-            {
-              name: 'cvss:3.0:severity',
-              value: vuln.severity
-            }
-          ],
-          externalReferences: [
-            {
-              type: 'advisory',
-              locator: `https://nvd.nist.gov/vuln/detail/${vuln.cveId}`
-            },
-            ...vuln.references.map(ref => ({
-              type: 'other',
-              locator: ref
-            }))
-          ]
+        const existing = vulnMap.get(vuln.cveId);
+        const spdxId = this.findPackageSpdxId(packages, pkg);
+        const affectEntry = {
+          spdxElementId: spdxId,
+          versionInfo: pkg.version
         };
 
-        // 添加 VEX 分析結果
-        if (vuln.vexStatus) {
-          vulnerability.properties.push(
-            {
-              name: 'vex:status',
-              value: vuln.vexStatus
-            }
+        if (existing) {
+          const alreadyAffected = existing.affects.some(
+            (a: any) => a.spdxElementId === affectEntry.spdxElementId
           );
-          
-          if (vuln.vexJustification) {
-            vulnerability.properties.push({
-              name: 'vex:justification',
-              value: vuln.vexJustification
-            });
+          if (!alreadyAffected) {
+            existing.affects.push(affectEntry);
+            // 補上此套件的 per-package VEX 屬性
+            if (vuln.vexStatus) {
+              existing.properties.push({ name: `vex:status:${spdxId}`, value: vuln.vexStatus });
+              if (vuln.vexJustification) {
+                existing.properties.push({ name: `vex:justification:${spdxId}`, value: vuln.vexJustification });
+              }
+            }
           }
-        }
+        } else {
+          const vulnerability: any = {
+            id: vuln.cveId,
+            description: vuln.description,
+            published: vuln.publishedDate,
+            modified: vuln.lastModifiedDate,
+            affects: [affectEntry],
+            properties: [
+              {
+                name: 'cvss:3.0:score',
+                value: vuln.cvssScore.toString()
+              },
+              {
+                name: 'cvss:3.0:severity',
+                value: vuln.severity
+              }
+            ],
+            externalReferences: [
+              {
+                type: 'advisory',
+                locator: `https://nvd.nist.gov/vuln/detail/${vuln.cveId}`
+              },
+              ...vuln.references.map(ref => ({
+                type: 'other',
+                locator: ref
+              }))
+            ]
+          };
 
-        vulnerabilities.push(vulnerability);
+          // 添加 per-package VEX 屬性，以 spdxId 區分不同套件的狀態
+          if (vuln.vexStatus) {
+            vulnerability.properties.push({ name: `vex:status:${spdxId}`, value: vuln.vexStatus });
+            if (vuln.vexJustification) {
+              vulnerability.properties.push({ name: `vex:justification:${spdxId}`, value: vuln.vexJustification });
+            }
+          }
+
+          vulnMap.set(vuln.cveId, vulnerability);
+        }
       });
     });
 
-    return vulnerabilities;
+    return Array.from(vulnMap.values());
   }
 
   /**
