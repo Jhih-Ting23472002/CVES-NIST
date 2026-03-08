@@ -8,34 +8,47 @@
 
 ### Overview
 
-A comprehensive security vulnerability scanner for Node.js projects that analyzes `package.json` and `package-lock.json` dependencies against the NIST CVE database. Built with Angular 17, this tool provides real-time vulnerability scanning, background task management, detailed reporting, and multiple export formats.
+A comprehensive security vulnerability scanner for Node.js projects that analyzes `package.json` and `package-lock.json` dependencies against the NIST CVE database and OSV (Open Source Vulnerability) database. Built with Angular 17, this tool provides real-time vulnerability scanning, background task management, detailed reporting, advanced supply chain security analysis, and multiple export formats.
 
 ### Features
 
-#### 🔍 **Vulnerability Scanning**
+#### 🔍 **Multi-Source Vulnerability Scanning** ⭐ ENHANCED
 - **Dual Scanning Modes**: API scanning and local database scanning
+- **Multi-Source Intelligence**: Integrates both NIST NVD and OSV (Open Source Vulnerability) databases for comprehensive coverage
+- **Vulnerability Merge Engine**: Intelligently deduplicates and merges reports from multiple sources
 - **Local Database**: Complete NVD database stored in IndexedDB for offline use
 - **Offline Support**: Scan packages without internet connection using local database
-- Integration with NIST National Vulnerability Database (NVD)
 - Support for `package.json` and `package-lock.json` files
 - CVSS scoring and severity classification (Critical, High, Medium, Low)
 - Automated API rate limiting and retry mechanisms
 
-#### 🌙 **Background Scanning** ⭐ NEW
+#### 🛡️ **Supply Chain Security** ⭐ NEW
+- **SBOM Validation**: Validate CycloneDX and SPDX Software Bill of Materials
+- **VEX Analysis**: Support for Vulnerability Exploitability eXchange to reduce false positives
+- **License Analysis**: Deep analysis of open source licenses and compliance
+- **Version Recommendation**: Smart and safe upgrade path recommendations for vulnerable dependencies
+
+#### ⚡ **Advanced Data Management & Performance** ⭐ NEW
+- **NVD 2.0 Optimization**: Optimized data structure and fast querying for complex NVD 2.0 schema
+- **Web Workers Integration**: Asynchronous processing of massive databases without blocking the UI
+- **Smart Versioning**: Automated cleanup of expired data and intelligent version management
+- **Local Scan Optimization**: Highly efficient IndexedDB operations and composite indexing
+
+#### 🌙 **Background Scanning**
 - **Non-blocking scans**: Continue using other features while scanning runs in background
 - **Persistent progress**: Scan progress persists across page refreshes and browser restarts
 - **Browser notifications**: Get notified when background scans complete
 - **Task management**: View, pause, resume, or cancel background scans
 - **Foreground switching**: Convert background scans to foreground view anytime
 
-#### ⚡ **Smart Task Management** ⭐ NEW
+#### ⚡ **Smart Task Management**
 - **Automatic cleanup**: Tasks older than 24 hours are automatically removed
 - **Manual cleanup**: Instantly remove expired tasks with one click
 - **Task persistence**: All task states saved to local storage
 - **Real-time updates**: Task status updates automatically when scans complete
 - **Improved stability**: Fixed button positioning and layout stability issues
 
-#### 📊 **Enhanced Reporting** ⭐ IMPROVED
+#### 📊 **Enhanced Reporting**
 - Interactive dashboard with vulnerability statistics
 - **Sticky toolbar**: Report actions always accessible while scrolling
 - Visual charts showing risk distribution
@@ -53,7 +66,7 @@ A comprehensive security vulnerability scanner for Node.js projects that analyze
 - **HTML Reports**: Comprehensive security reports with visual formatting
 - All exports include scan timestamps and comprehensive metadata
 
-#### 🎨 **User Interface** ⭐ IMPROVED
+#### 🎨 **User Interface**
 - Modern Material Design interface with responsive layout
 - **Optimized buttons**: 40px buttons for better usability
 - **Fixed layout issues**: Stable button positioning during interactions
@@ -101,7 +114,7 @@ The application will be available at `http://localhost:4300`
    - The tool will validate and extract dependencies
 
 2. **Choose Scan Mode**
-   - **API Scan**: Online scanning using NIST API (requires internet)
+   - **API Scan**: Online scanning using NIST API & OSV API (requires internet)
    - **Local Scan**: Offline scanning using local database (faster)
    - **Foreground Scan**: Traditional blocking scan with immediate results
    - **Background Scan**: Non-blocking scan, continue using other features
@@ -136,7 +149,7 @@ The application will be available at `http://localhost:4300`
 - **Reactive Programming**: RxJS
 - **Styling**: SCSS
 - **Testing**: Karma + Jasmine
-- **API**: NIST CVE Database REST API
+- **API**: NIST CVE Database REST API, OSV API
 - **Local Database**: IndexedDB for NVD data storage
 - **Workers**: Web Workers for database operations
 - **Storage**: Browser LocalStorage for task persistence
@@ -146,20 +159,32 @@ The application will be available at `http://localhost:4300`
 ```
 src/app/
 ├── core/                    # Core services and models
+│   ├── config/              # Configuration files
 │   ├── interfaces/          # TypeScript interfaces
 │   ├── models/             # Data models
+│   ├── utils/              # Utility functions
+│   ├── workers/            # Web Worker scripts
 │   └── services/           # Business logic services
 │       ├── background-scan.service.ts  # Background task management
 │       ├── cache.service.ts            # LRU caching system
+│       ├── cve-optimization.service.ts # NVD 2.0 optimization
+│       ├── database-worker.service.ts  # Web Worker management
 │       ├── file-parser.service.ts      # File parsing logic
-│       ├── nist-api.service.ts         # NIST API integration
+│       ├── license-analysis.service.ts # Open source license analysis
+│       ├── local-scan-optimizer.service.ts # Local scan performance tuning
 │       ├── local-scan.service.ts       # Local database scanning
+│       ├── nist-api.service.ts         # NIST API integration
 │       ├── nvd-database.service.ts     # IndexedDB management
 │       ├── nvd-download.service.ts     # NVD data download
 │       ├── nvd-parser.service.ts       # NVD data parsing
 │       ├── nvd-sync.service.ts         # Database synchronization
-│       ├── database-worker.service.ts  # Web Worker management
-│       └── report-export.service.ts    # Export functionality
+│       ├── optimized-query.service.ts  # Database query optimization
+│       ├── osv-api.service.ts          # OSV API integration
+│       ├── report-export.service.ts    # Export functionality
+│       ├── sbom-validator.service.ts   # SBOM validation
+│       ├── version-recommendation.service.ts # Upgrade path recommendations
+│       ├── vex-analysis.service.ts     # VEX exploitability analysis
+│       └── vulnerability-merge.service.ts # Multi-source data merging
 ├── features/               # Feature modules
 │   ├── upload/            # File upload component
 │   ├── scan/              # Scanning interface
@@ -177,34 +202,47 @@ src/app/
 
 ### 概述
 
-這是一個針對 Node.js 專案的綜合性安全漏洞掃描工具，能夠分析 `package.json` 和 `package-lock.json` 相依性套件並與 NIST CVE 資料庫進行比對。使用 Angular 17 建構，提供即時漏洞掃描、背景任務管理、詳細報告和多種匯出格式。
+這是一個針對 Node.js 專案的綜合性安全漏洞掃描工具，能夠分析 `package.json` 和 `package-lock.json` 相依性套件，並與 NIST CVE 資料庫及 OSV (Open Source Vulnerability) 資料庫進行比對。使用 Angular 17 建構，提供即時漏洞掃描、背景任務管理、詳細報告、進階軟體供應鏈安全分析和多種匯出格式。
 
 ### 功能特色
 
-#### 🔍 **漏洞掃描**
+#### 🔍 **多源漏洞掃描** ⭐ 功能強化
 - **雙模式掃描**: 支援 API 掃描和本地資料庫掃描
+- **多源漏洞情報**: 整合 NIST NVD 與 OSV (Open Source Vulnerability) 資料庫，提供最全面的覆蓋
+- **漏洞合併引擎**: 智慧去重並合併來自多個來源的漏洞報告
 - **本地資料庫**: 使用 IndexedDB 儲存完整的 NVD 資料庫副本
 - **離線支援**: 本地掃描可在無網路連線時使用
-- 整合 NIST 國家漏洞資料庫 (NVD)
 - 支援 `package.json` 和 `package-lock.json` 檔案
 - CVSS 評分和嚴重性分類（嚴重、高、中、低風險）
 - 自動化 API 限制處理和重試機制
 
-#### 🌙 **背景掃描** ⭐ 全新功能
+#### 🛡️ **軟體供應鏈安全** ⭐ 全新功能
+- **SBOM 驗證**: 支援驗證 CycloneDX 和 SPDX 軟體物料清單格式
+- **VEX 分析**: 支援漏洞可利用性交換 (Vulnerability Exploitability eXchange)，有效減少誤判
+- **授權條款分析**: 深入分析開源授權條款 (License) 與合規性
+- **版本升級建議**: 針對具備漏洞的相依性套件，提供智慧且安全的升級路徑建議
+
+#### ⚡ **進階資料管理與效能最佳化** ⭐ 全新功能
+- **NVD 2.0 最佳化**: 針對複雜的 NVD 2.0 格式進行資料結構與查詢效能最佳化
+- **Web Workers 整合**: 非同步處理海量資料庫操作，確保 UI 零阻塞
+- **智慧版本管理**: 自動清理過期資料並進行高效率的版本控制
+- **本地掃描優化**: 高效的 IndexedDB 操作與複合索引設計
+
+#### 🌙 **背景掃描** 
 - **非阻塞掃描**：掃描期間可繼續使用其他功能
 - **持久性進度**：進度在頁面重新整理和瀏覽器重啟後保持
 - **瀏覽器通知**：背景掃描完成時收到通知
 - **任務管理**：查看、暫停、繼續或取消背景掃描
 - **前景切換**：隨時將背景掃描切換為前景顯示
 
-#### ⚡ **智慧任務管理** ⭐ 全新功能
+#### ⚡ **智慧任務管理** 
 - **自動清理**：超過 24 小時的任務自動移除
 - **手動清理**：一鍵立即移除過期任務
 - **任務持久化**：所有任務狀態保存至本地儲存
 - **即時更新**：掃描完成時任務狀態自動更新
 - **穩定性改善**：修正按鈕定位和佈局穩定性問題
 
-#### 📊 **增強型報告** ⭐ 功能改善
+#### 📊 **增強型報告** 
 - 互動式儀表板顯示漏洞統計
 - **黏性工具列**：滾動時報告操作按鈕始終可見
 - 視覺化圖表顯示風險分佈
@@ -222,7 +260,7 @@ src/app/
 - **HTML 報告**：具視覺化格式的完整安全報告
 - 所有匯出皆包含掃描時間戳記和完整中繼資料
 
-#### 🎨 **使用者介面** ⭐ 介面改善
+#### 🎨 **使用者介面** 
 - 現代化 Material Design 介面含響應式佈局
 - **優化按鈕**：40px 按鈕提供更好的可用性
 - **修正佈局問題**：互動時按鈕位置保持穩定
@@ -270,7 +308,7 @@ npm start
    - 工具會驗證並提取相依性套件
 
 2. **選擇掃描模式**
-   - **API 掃描**：線上掃描使用 NIST API（需要網路連線）
+   - **API 掃描**：線上掃描使用 NIST API 及 OSV API（需要網路連線）
    - **本地掃描**：離線掃描使用本地資料庫（更快速）
    - **前景掃描**：傳統阻塞式掃描，立即顯示結果
    - **背景掃描**：非阻塞掃描，可繼續使用其他功能
@@ -317,7 +355,14 @@ npm run watch
 
 ## Changelog / 更新日誌
 
-### v3.1.0 (Current) ⭐ UI/UX Improvements
+### v4.0.0 (Current) ⭐ Supply Chain Security & Performance Optimization
+- ✅ **Multi-Source Intelligence**: Integrated OSV API alongside NIST NVD.
+- ✅ **Supply Chain Security**: Added SBOM validation, VEX analysis, License analysis, and Version recommendation.
+- ✅ **Performance Overhaul**: NVD 2.0 format optimization, Web Worker asynchronous processing, and advanced query optimizations.
+- ✅ **Smart Data Management**: Automated cleanup, data versioning, and composite indexing for local database.
+- ✅ **Vulnerability Merge Engine**: Intelligent deduplication for multi-source scan reports.
+
+### v3.1.0 (Previous) ⭐ UI/UX Improvements
 - ✅ **Sticky toolbar**: Report actions always accessible while scrolling
 - ✅ **Button optimization**: 40px buttons for better usability
 - ✅ **Layout stability**: Fixed button positioning issues during interactions
@@ -351,5 +396,5 @@ npm run watch
 **Built with ❤️ using Angular and Material Design**  
 **使用 Angular 和 Material Design 用心建構**
 
-**⭐ Now with Enhanced UI/UX - Smooth & Stable Experience!**  
-**⭐ 現在具備增強的 UI/UX - 流暢且穩定的體驗！**
+**⭐ Now with Enhanced Supply Chain Security - Safer & Faster Experience!**  
+**⭐ 現在具備增強的軟體供應鏈安全 - 更安全且快速的體驗！**
