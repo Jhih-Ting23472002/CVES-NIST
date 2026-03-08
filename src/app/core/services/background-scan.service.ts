@@ -1,13 +1,11 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable, Subject, timer, EMPTY } from 'rxjs';
+import { BehaviorSubject, Subject } from 'rxjs';
 import { takeUntil, tap, finalize } from 'rxjs/operators';
-import { 
-  ScanTask, 
-  ScanTaskStatus, 
-  BackgroundScanState, 
-  PackageInfo, 
-  ScanConfig, 
-  ScanProgress, 
+import {
+  ScanTask,
+  BackgroundScanState,
+  PackageInfo,
+  ScanConfig,
   Vulnerability,
   NotificationConfig
 } from '../models/vulnerability.model';
@@ -31,6 +29,7 @@ export class BackgroundScanService {
   private stateSubject = new BehaviorSubject<BackgroundScanState>(this.state);
   private currentTaskSubject = new Subject<ScanTask | null>();
   private stopCurrentScan$ = new Subject<void>();
+  private _shouldStartNext = false;
   private cleanupTimer?: any;
 
   public state$ = this.stateSubject.asObservable();
@@ -55,17 +54,23 @@ export class BackgroundScanService {
    * 創建新的背景掃描任務
    */
   createScanTask(
-    name: string, 
-    packages: PackageInfo[], 
+    name: string,
+    packages: PackageInfo[],
     config: ScanConfig,
-    startImmediately: boolean = true
+    startImmediately: boolean = true,
+    sourceFileName: string = ''
   ): string {
     const taskId = this.generateTaskId();
     const estimatedTime = this.fileParserService.estimateScanTime(packages);
-    
+
+    // 自動計算 order：取所有活動任務中最大 order + 1
+    const maxOrder = this.state.activeTasks.reduce((max, t) => Math.max(max, t.order || 0), 0);
+
     const task: ScanTask = {
       id: taskId,
       name: name || `掃描任務 - ${new Date().toLocaleDateString()}`,
+      sourceFileName: sourceFileName,
+      order: maxOrder + 1,
       packages,
       config,
       status: 'pending',
@@ -88,7 +93,12 @@ export class BackgroundScanService {
     this.stateSubject.next(this.state);
 
     if (startImmediately) {
-      this.startScanTask(taskId);
+      // 如果已有任務正在執行，新任務只加入佇列等待，不搶佔執行順序
+      if (this.hasRunningTask()) {
+        console.log(`已有任務正在執行，新任務 "${name}" 加入佇列等待 (order: ${task.order})`);
+      } else {
+        this.startScanTask(taskId);
+      }
     }
 
     return taskId;
@@ -165,18 +175,24 @@ export class BackgroundScanService {
     const task = this.getTask(taskId);
     if (!task) return;
 
-    if (task.status === 'running') {
+    const wasRunning = task.status === 'running';
+    if (wasRunning) {
       this.stopCurrentScan$.next();
     }
 
     task.status = 'cancelled';
     task.completedAt = new Date();
-    
+
     // 移動到已完成清單
     this.moveToCompleted(task);
     this.currentTaskSubject.next(null);
 
     console.log(`取消掃描任務: ${task.name}`);
+
+    // 取消正在執行的任務後，透過 finalize 自動啟動下一個待執行任務
+    if (wasRunning) {
+      this._shouldStartNext = true;
+    }
   }
 
   /**
@@ -219,6 +235,75 @@ export class BackgroundScanService {
   }
 
   /**
+   * 上移任務順序
+   */
+  moveTaskUp(taskId: string): void {
+    const pendingTasks = this.state.activeTasks
+      .filter(t => t.status === 'pending' || t.status === 'paused')
+      .sort((a, b) => a.order - b.order);
+
+    const index = pendingTasks.findIndex(t => t.id === taskId);
+    if (index <= 0) return;
+
+    // 交換 order 值
+    const temp = pendingTasks[index].order;
+    pendingTasks[index].order = pendingTasks[index - 1].order;
+    pendingTasks[index - 1].order = temp;
+
+    this.saveState();
+    this.stateSubject.next(this.state);
+  }
+
+  /**
+   * 下移任務順序
+   */
+  moveTaskDown(taskId: string): void {
+    const pendingTasks = this.state.activeTasks
+      .filter(t => t.status === 'pending' || t.status === 'paused')
+      .sort((a, b) => a.order - b.order);
+
+    const index = pendingTasks.findIndex(t => t.id === taskId);
+    if (index < 0 || index >= pendingTasks.length - 1) return;
+
+    // 交換 order 值
+    const temp = pendingTasks[index].order;
+    pendingTasks[index].order = pendingTasks[index + 1].order;
+    pendingTasks[index + 1].order = temp;
+
+    this.saveState();
+    this.stateSubject.next(this.state);
+  }
+
+  /**
+   * 重新排序任務
+   */
+  reorderTasks(taskIds: string[]): void {
+    taskIds.forEach((id, index) => {
+      const task = this.state.activeTasks.find(t => t.id === id);
+      if (task) {
+        task.order = index + 1;
+      }
+    });
+
+    this.saveState();
+    this.stateSubject.next(this.state);
+  }
+
+  /**
+   * 自動啟動下一個待執行任務（依 order 排序）
+   */
+  private startNextPendingTask(): void {
+    const nextTask = this.state.activeTasks
+      .filter(t => t.status === 'pending')
+      .sort((a, b) => a.order - b.order)[0];
+
+    if (nextTask) {
+      console.log(`自動啟動下一個待執行任務: ${nextTask.name} (order: ${nextTask.order})`);
+      this.startScanTask(nextTask.id);
+    }
+  }
+
+  /**
    * 執行實際的掃描邏輯（支援斷點續掃）
    */
   private executeScan(task: ScanTask): void {
@@ -240,8 +325,11 @@ export class BackgroundScanService {
       this.moveToCompleted(task);
       this.currentTaskSubject.next(null);
       this.sendCompletionNotification(task);
-      
+
       console.log(`背景掃描已完成: ${task.name}`);
+
+      // 自動啟動下一個待執行任務
+      this.startNextPendingTask();
       return;
     }
     
@@ -292,6 +380,12 @@ export class BackgroundScanService {
           // 清理停止信號，準備下次使用
           console.log(`[FINALIZE] 掃描已結束，重新創建停止信號`);
           this.stopCurrentScan$ = new Subject<void>();
+
+          // 在 finalize 中啟動下一個任務，確保 stopCurrentScan$ 已重建
+          if (this._shouldStartNext) {
+            this._shouldStartNext = false;
+            this.startNextPendingTask();
+          }
         })
       )
       .subscribe({
@@ -310,8 +404,11 @@ export class BackgroundScanService {
 
             // 發送通知
             this.sendCompletionNotification(task);
-            
+
             console.log(`背景掃描完成: ${task.name}，共掃描 ${finalResults.length} 個套件`);
+
+            // 標記需要在 finalize 中啟動下一個任務
+            this._shouldStartNext = true;
           }
         },
         error: (error) => {
@@ -517,14 +614,18 @@ export class BackgroundScanService {
         // 轉換日期字串回 Date 物件
         this.state = {
           ...parsed,
-          activeTasks: parsed.activeTasks.map((task: any) => ({
+          activeTasks: parsed.activeTasks.map((task: any, index: number) => ({
             ...task,
+            sourceFileName: task.sourceFileName || '',
+            order: task.order || (index + 1),
             createdAt: new Date(task.createdAt),
             startedAt: task.startedAt ? new Date(task.startedAt) : undefined,
             completedAt: task.completedAt ? new Date(task.completedAt) : undefined
           })),
-          completedTasks: parsed.completedTasks.map((task: any) => ({
+          completedTasks: parsed.completedTasks.map((task: any, index: number) => ({
             ...task,
+            sourceFileName: task.sourceFileName || '',
+            order: task.order || (index + 1),
             createdAt: new Date(task.createdAt),
             startedAt: task.startedAt ? new Date(task.startedAt) : undefined,
             completedAt: task.completedAt ? new Date(task.completedAt) : undefined

@@ -62,6 +62,14 @@
         </div>
         
         <div class="scan-config" *ngIf="useBackgroundScan">
+          <mat-form-field appearance="outline" class="task-name-field">
+            <mat-label>任務名稱</mat-label>
+            <input matInput
+                   [(ngModel)]="customTaskName"
+                   [placeholder]="sourceFileName || '掃描任務'"
+                   maxlength="50">
+            <mat-hint>自訂名稱，系統會自動附加時間戳</mat-hint>
+          </mat-form-field>
           <p class="config-description">
             掃描模式：{{ getScanConfigDescription() }}
           </p>

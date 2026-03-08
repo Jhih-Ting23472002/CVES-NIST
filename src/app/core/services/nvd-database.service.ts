@@ -172,7 +172,6 @@ export class NvdDatabaseService {
         return;
       }
 
-      let processed = 0;
       const total = records.length;
       const batchSize = 500; // 減少批次大小避免事務超時
       let currentBatch = 0;
@@ -188,27 +187,30 @@ export class NvdDatabaseService {
           return;
         }
 
+        // 根據已完成的批次數計算 processed，避免重試時計數器錯誤
+        const baseProcessed = currentBatch * batchSize;
+
         // 為每個批次創建新的事務
         try {
           const transaction = this.db!.transaction([this.CVE_STORE], 'readwrite');
           const store = transaction.objectStore(this.CVE_STORE);
-          
+
           let batchProcessed = 0;
           let hasError = false;
 
           // 處理當前批次的所有記錄
           for (const record of batch) {
             if (hasError) break;
-            
+
             try {
               const request = store.put(record);
-              
+
               request.onsuccess = () => {
                 batchProcessed++;
-                processed++;
-                
+
                 // 當此批次完成時
                 if (batchProcessed === batch.length) {
+                  const processed = baseProcessed + batchProcessed;
                   const progress: BatchProcessProgress = {
                     type: 'store',
                     processed: processed,
@@ -314,7 +316,6 @@ export class NvdDatabaseService {
         return;
       }
 
-      let processed = 0;
       const total = records.length;
       const batchSize = 500; // 減少批次大小避免事務超時
       let currentBatch = 0;
@@ -339,27 +340,30 @@ export class NvdDatabaseService {
           return;
         }
 
+        // 根據已完成的批次數計算 processed，避免重試時計數器錯誤
+        const baseProcessed = currentBatch * batchSize;
+
         // 為每個批次創建新的事務
         try {
           const transaction = this.db!.transaction([this.CPE_STORE], 'readwrite');
           const store = transaction.objectStore(this.CPE_STORE);
-          
+
           let batchProcessed = 0;
           let hasError = false;
 
           // 處理當前批次的所有記錄
           for (const record of batch) {
             if (hasError) break;
-            
+
             try {
               const request = store.put(record);
-              
+
               request.onsuccess = () => {
                 batchProcessed++;
-                processed++;
-                
+
                 // 當此批次完成時
                 if (batchProcessed === batch.length) {
+                  const processed = baseProcessed + batchProcessed;
                   const progress: BatchProcessProgress = {
                     type: 'store',
                     processed: processed,

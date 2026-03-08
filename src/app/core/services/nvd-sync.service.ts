@@ -156,18 +156,21 @@ export class NvdSyncService {
 
       // 取得下載的真實資料
       const downloadedData = this.downloadService.getDownloadedData();
-      
+
       if (downloadedData.size === 0) {
+        this.downloadService.clearDownloadedData();
         observer.error(new Error('沒有找到下載的資料'));
         return;
       }
 
       // 合併所有年度的 CVE 資料
       const combinedData = this.combineYearlyData(downloadedData);
-      
+
+      // 合併完成後即可安全清理原始下載資料，combinedData 已持有所有物件引用
+      this.downloadService.clearDownloadedData();
+
       let dataToStore: CveRecord[] = [];
-      let isParsingComplete = false;
-      
+
       this.parserService.parseNvdData(combinedData, this.generateDataVersion()).subscribe({
         next: (parseResult) => {
           if (parseResult.type === 'progress' && parseResult.progress) {
@@ -184,7 +187,6 @@ export class NvdSyncService {
             // CPE 資料可以立即儲存，因為通常較少
             this.storeCpeData(parseResult.data as CpeRecord[], observer);
           } else if (parseResult.type === 'complete') {
-            isParsingComplete = true;
             // 解析完成後，開始批次儲存所有 CVE 資料
             if (dataToStore.length > 0) {
               this.storeCveDataAndComplete(dataToStore, observer, startTime);
@@ -198,10 +200,8 @@ export class NvdSyncService {
         }
       });
     } catch (error) {
-      this.handleSyncError(observer, error as Error, '處理下載資料失敗');
-    } finally {
-      // 清理下載的資料以釋放記憶體
       this.downloadService.clearDownloadedData();
+      this.handleSyncError(observer, error as Error, '處理下載資料失敗');
     }
   }
 
@@ -635,13 +635,19 @@ export class NvdSyncService {
    * 清除本地資料庫
    */
   clearLocalDatabase(): Observable<void> {
+    // 取消自動同步定時器，避免清除後自動觸發同步
+    this.cancelAutoSync();
+
     return this.databaseService.clearAllData().pipe(
       tap(() => {
         this.updateSyncStatus({
           isRunning: false,
           currentPhase: 'idle',
           progress: null,
-          message: '本地資料庫已清除'
+          message: '本地資料庫已清除',
+          lastSync: undefined,
+          nextSync: undefined,
+          error: undefined
         });
       })
     );

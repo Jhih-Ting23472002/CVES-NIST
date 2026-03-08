@@ -9,7 +9,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDialogModule, MatDialog, MAT_DIALOG_DATA } from '@angular/material/dialog';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatChipsModule } from '@angular/material/chips';
-import { Subscription } from 'rxjs';
+import { Subscription, take } from 'rxjs';
 import { LoadingOverlayComponent } from '../../shared/components/loading-overlay.component';
 
 import { NvdSyncService, SyncStatus } from '../../core/services/nvd-sync.service';
@@ -194,27 +194,27 @@ import { getDatabaseConfig } from '../../core/config/database.config';
         </mat-card-content>
         
         <mat-card-actions>
-          <button mat-raised-button 
-                  color="primary" 
+          <button mat-raised-button
+                  color="primary"
                   (click)="performSync()"
-                  [disabled]="syncStatus?.isRunning || isDatabaseChecking"
+                  [disabled]="syncStatus?.isRunning || isDatabaseChecking || isDatabaseClearing"
                   matTooltip="手動執行資料同步">
             <mat-icon>sync</mat-icon>
             {{ getSyncButtonText() }}
           </button>
           
-          <button mat-raised-button 
+          <button mat-raised-button
                   color="warn"
                   (click)="clearDatabase()"
-                  [disabled]="syncStatus?.isRunning || isDatabaseChecking"
+                  [disabled]="syncStatus?.isRunning || isDatabaseChecking || isDatabaseClearing"
                   matTooltip="清除所有本地資料">
-            <mat-icon>delete_sweep</mat-icon>
-            清除資料庫
+            <mat-icon [class]="isDatabaseClearing ? 'spinning' : ''">{{ isDatabaseClearing ? 'autorenew' : 'delete_sweep' }}</mat-icon>
+            {{ isDatabaseClearing ? '清除中...' : '清除資料庫' }}
           </button>
           
-          <button mat-stroked-button 
+          <button mat-stroked-button
                   (click)="refreshStatus()"
-                  [disabled]="syncStatus?.isRunning || isDatabaseChecking"
+                  [disabled]="syncStatus?.isRunning || isDatabaseChecking || isDatabaseClearing"
                   matTooltip="重新載入狀態">
             <mat-icon [class]="isDatabaseChecking ? 'spinning' : ''">refresh</mat-icon>
             {{ isDatabaseChecking ? '檢查中...' : '重新載入' }}
@@ -223,7 +223,7 @@ import { getDatabaseConfig } from '../../core/config/database.config';
           <button mat-stroked-button 
                   color="accent"
                   (click)="smartCleanup()"
-                  [disabled]="syncStatus?.isRunning || isDatabaseChecking || !workerService.isWorkerAvailable()"
+                  [disabled]="syncStatus?.isRunning || isDatabaseChecking || isDatabaseClearing || !workerService.isWorkerAvailable()"
                   matTooltip="使用 Web Worker 智慧清理過期資料">
             <mat-icon>auto_fix_high</mat-icon>
             智慧清理
@@ -563,6 +563,7 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
   connectionStatus: 'connected' | 'disconnected' | 'unknown' = 'unknown';
   isTestingConnection = false;
   isDatabaseChecking = false; // 新增：資料庫檢查狀態
+  isDatabaseClearing = false; // 資料庫清除中狀態
 
   // 載入遮罩相關
   showLoadingOverlay = false;
@@ -720,9 +721,15 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
   }
 
   performSync(): void {
-    // 不要在這裡顯示遮罩，讓 subscribeToSyncStatus 統一處理
-    // 這樣可以避免重複顯示和狀態不一致的問題
-    
+    // 立即通知使用者同步已開始
+    const isInitial = !this.databaseStats || this.databaseStats.totalCveCount === 0;
+    this.snackBar.open(
+      isInitial ? '正在開始初始同步，這可能需要幾分鐘...' : '正在開始增量同步...',
+      '確定',
+      { duration: 3000, panelClass: ['info-snackbar'] }
+    );
+
+    // 遮罩由 subscribeToSyncStatus 統一處理
     this.syncService.forceSyncNow().subscribe({
       next: (status) => {
         // 狀態更新由 subscribeToSyncStatus 統一處理
@@ -759,17 +766,25 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
 
     dialogRef.afterClosed().subscribe(result => {
       if (result) {
+        this.isDatabaseClearing = true;
+        this.snackBar.open('正在清除資料庫，請稍候...', '確定', {
+          duration: 0, // 不自動關閉，等操作完成後手動關閉
+          panelClass: ['info-snackbar']
+        });
+
         this.syncService.clearLocalDatabase().subscribe({
           next: () => {
-            this.snackBar.open('資料庫已清除', '確定', {
+            this.isDatabaseClearing = false;
+            this.snackBar.open('資料庫已成功清除', '確定', {
               duration: 3000,
               panelClass: ['success-snackbar']
             });
             this.loadDatabaseStats();
           },
           error: (error) => {
+            this.isDatabaseClearing = false;
             console.error('清除資料庫失敗:', error);
-            this.snackBar.open('清除資料庫失敗', '確定', {
+            this.snackBar.open(`清除資料庫失敗：${error.message || '未知錯誤'}`, '確定', {
               duration: 5000,
               panelClass: ['error-snackbar']
             });
@@ -1000,8 +1015,8 @@ export class DatabaseManagementComponent implements OnInit, OnDestroy {
    * 檢查是否有現有的同步進程
    */
   private checkExistingSync(): void {
-    // 取得當前同步狀態
-    this.syncService.getSyncStatus().subscribe(status => {
+    // 使用 take(1) 只讀取當前快照，避免與 subscribeToSyncStatus 重複訂閱
+    this.syncService.getSyncStatus().pipe(take(1)).subscribe(status => {
       if (status.isRunning) {
         // 如果有正在執行的同步，顯示遮罩
         this.showSyncLoadingOverlay();

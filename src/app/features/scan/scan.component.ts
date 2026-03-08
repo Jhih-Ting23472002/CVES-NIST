@@ -71,7 +71,11 @@ export class ScanComponent implements OnInit, OnDestroy {
   useBackgroundScan = true;
   currentTask: ScanTask | null = null;
   scanConfig: ScanConfig = DEFAULT_SCAN_CONFIGS['balanced'];
-  
+  customTaskName = '';
+
+  // 來源檔案名稱
+  sourceFileName = '';
+
   // 本地掃描相關
   useLocalScan = false;
   isLocalDatabaseReady = false;
@@ -101,6 +105,9 @@ export class ScanComponent implements OnInit, OnDestroy {
     const navigation = this.router.getCurrentNavigation();
     if (navigation?.extras?.state?.['packages']) {
       this.packages = navigation.extras.state['packages'];
+    }
+    if (navigation?.extras?.state?.['fileName']) {
+      this.sourceFileName = navigation.extras.state['fileName'];
     }
     
     // 檢查是否來自背景任務頁面的前景顯示請求
@@ -214,20 +221,24 @@ export class ScanComponent implements OnInit, OnDestroy {
    * 開始背景掃描
    */
   startBackgroundScan(): void {
-    // API 配置已在 startScan() 中設定
-    const taskName = `掃描任務 - ${new Date().toLocaleString()}`;
+    const baseName = this.customTaskName.trim() || this.sourceFileName || '掃描任務';
+    const taskName = `${baseName} - ${new Date().toLocaleString()}`;
+    const hasRunning = this.backgroundScanService.hasRunningTask();
     this.backgroundScanService.createScanTask(
       taskName,
       this.packages,
       this.scanConfig,
-      true
+      true,
+      this.sourceFileName
     );
 
-    this.snackBar.open(
-      `背景掃描已開始，您可以繼續使用其他功能。掃描完成時會收到通知。`,
-      '確定',
-      { duration: 6000, panelClass: ['info-snackbar'] }
-    );
+    const message = hasRunning
+      ? `任務已加入掃描佇列，將依序執行。您可以在背景任務頁面調整順序。`
+      : `背景掃描已開始，您可以繼續使用其他功能。掃描完成時會收到通知。`;
+    this.snackBar.open(message, '確定', {
+      duration: 6000,
+      panelClass: ['info-snackbar']
+    });
     
     // 導航到背景任務頁面或回到上傳頁面
     setTimeout(() => {

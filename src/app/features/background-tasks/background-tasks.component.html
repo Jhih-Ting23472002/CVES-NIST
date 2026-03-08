@@ -55,7 +55,33 @@
     </mat-card-header>
 
     <mat-card-content>
-      <table mat-table [dataSource]="state.activeTasks" class="tasks-table">
+      <table mat-table [dataSource]="getSortedActiveTasks()" class="tasks-table">
+        <!-- 排序序號 -->
+        <ng-container matColumnDef="order">
+          <th mat-header-cell *matHeaderCellDef>順序</th>
+          <td mat-cell *matCellDef="let task">
+            <div class="order-controls">
+              <span class="order-number">{{ task.order }}</span>
+              <div class="order-buttons" *ngIf="task.status !== 'running'">
+                <button mat-icon-button
+                        class="order-btn"
+                        [disabled]="isFirstTask(task)"
+                        (click)="moveTaskUp(task.id)"
+                        matTooltip="上移">
+                  <mat-icon>arrow_upward</mat-icon>
+                </button>
+                <button mat-icon-button
+                        class="order-btn"
+                        [disabled]="isLastTask(task)"
+                        (click)="moveTaskDown(task.id)"
+                        matTooltip="下移">
+                  <mat-icon>arrow_downward</mat-icon>
+                </button>
+              </div>
+            </div>
+          </td>
+        </ng-container>
+
         <!-- 任務名稱 -->
         <ng-container matColumnDef="name">
           <th mat-header-cell *matHeaderCellDef>任務名稱</th>
@@ -63,6 +89,17 @@
             <div class="task-name">
               <strong>{{ task.name }}</strong>
               <small>{{ task.packages.length }} 個套件</small>
+            </div>
+          </td>
+        </ng-container>
+
+        <!-- 來源檔案 -->
+        <ng-container matColumnDef="sourceFile">
+          <th mat-header-cell *matHeaderCellDef>來源檔案</th>
+          <td mat-cell *matCellDef="let task">
+            <div class="source-file">
+              <mat-icon class="file-icon">description</mat-icon>
+              <span>{{ task.sourceFileName || '未知' }}</span>
             </div>
           </td>
         </ng-container>
@@ -195,6 +232,17 @@
             <div class="task-name">
               <strong>{{ task.name }}</strong>
               <small>{{ task.packages.length }} 個套件 | 完成於 {{ task.completedAt | date:'short' }}</small>
+            </div>
+          </td>
+        </ng-container>
+
+        <!-- 來源檔案 -->
+        <ng-container matColumnDef="sourceFile">
+          <th mat-header-cell *matHeaderCellDef>來源檔案</th>
+          <td mat-cell *matCellDef="let task">
+            <div class="source-file">
+              <mat-icon class="file-icon">description</mat-icon>
+              <span>{{ task.sourceFileName || '未知' }}</span>
             </div>
           </td>
         </ng-container>

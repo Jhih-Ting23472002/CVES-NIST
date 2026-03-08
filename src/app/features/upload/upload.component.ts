@@ -286,8 +286,8 @@ export class UploadComponent implements OnInit {
     if (this.packages.length === 0) return;
     
     // 將套件資料傳遞給掃描頁面
-    this.router.navigate(['/scan'], { 
-      state: { packages: this.packages }
+    this.router.navigate(['/scan'], {
+      state: { packages: this.packages, fileName: this.selectedFile?.name }
     });
   }
 

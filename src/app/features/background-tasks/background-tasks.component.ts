@@ -41,8 +41,8 @@ export class BackgroundTasksComponent implements OnInit, OnDestroy {
   state: BackgroundScanState = { activeTasks: [], completedTasks: [] };
   currentTask: ScanTask | null = null;
   
-  displayedActiveColumns = ['name', 'progress', 'status', 'actions'];
-  displayedCompletedColumns = ['name', 'duration', 'status', 'results', 'actions'];
+  displayedActiveColumns = ['order', 'name', 'sourceFile', 'progress', 'status', 'actions'];
+  displayedCompletedColumns = ['name', 'sourceFile', 'duration', 'status', 'results', 'actions'];
   
   // 快取清理時間，避免變更檢測錯誤
   nextCleanupTime: string = '';
@@ -254,6 +254,47 @@ export class BackgroundTasksComponent implements OnInit, OnDestroy {
    */
   canViewTask(task: ScanTask): boolean {
     return task.status === 'completed' || task.status === 'running' || task.status === 'paused';
+  }
+
+  /**
+   * 上移任務順序
+   */
+  moveTaskUp(taskId: string): void {
+    this.backgroundScanService.moveTaskUp(taskId);
+  }
+
+  /**
+   * 下移任務順序
+   */
+  moveTaskDown(taskId: string): void {
+    this.backgroundScanService.moveTaskDown(taskId);
+  }
+
+  /**
+   * 檢查是否為第一個可排序的任務
+   */
+  isFirstTask(task: ScanTask): boolean {
+    const sortedTasks = this.state.activeTasks
+      .filter(t => t.status === 'pending' || t.status === 'paused')
+      .sort((a, b) => a.order - b.order);
+    return sortedTasks.length === 0 || sortedTasks[0].id === task.id;
+  }
+
+  /**
+   * 檢查是否為最後一個可排序的任務
+   */
+  isLastTask(task: ScanTask): boolean {
+    const sortedTasks = this.state.activeTasks
+      .filter(t => t.status === 'pending' || t.status === 'paused')
+      .sort((a, b) => a.order - b.order);
+    return sortedTasks.length === 0 || sortedTasks[sortedTasks.length - 1].id === task.id;
+  }
+
+  /**
+   * 取得排序後的活動任務
+   */
+  getSortedActiveTasks(): ScanTask[] {
+    return [...this.state.activeTasks].sort((a, b) => a.order - b.order);
   }
 
   /**
