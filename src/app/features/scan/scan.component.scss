@@ -14,7 +14,7 @@
 }
 
 
-.local-scan-option, .background-scan-option {
+.local-scan-option, .background-scan-option, .osv-scan-option {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -69,6 +69,11 @@
   &.api {
     background-color: #e3f2fd;
     color: #1565c0;
+  }
+
+  &.osv {
+    background-color: #f3e5f5;
+    color: #6a1b9a;
   }
 }
 

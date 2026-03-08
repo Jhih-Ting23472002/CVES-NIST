@@ -508,5 +508,41 @@ export class ReportComponent implements OnInit {
   trackByPackage(index: number, pkg: PackageInfo): string {
     return pkg.packageKey || `${pkg.name}@${pkg.version}`;
   }
+
+  /**
+   * 取得資料來源標籤（用於報告頭部顯示）
+   */
+  getDataSourceLabel(): string {
+    const allVulns = this.scanResults.flatMap(r => r.vulnerabilities);
+    const hasOsv = allVulns.some(v => v.dataSource === 'osv' || v.dataSource === 'hybrid');
+    const hasNist = allVulns.some(v => !v.dataSource || v.dataSource === 'nist' || v.dataSource === 'hybrid');
+
+    if (hasNist && hasOsv) return 'NIST NVD + OSV.dev';
+    if (hasOsv) return 'OSV.dev';
+    return 'NIST NVD';
+  }
+
+  /**
+   * 取得漏洞的來源標記（用於漏洞列表顯示）
+   */
+  getVulnSourceBadge(vuln: Vulnerability): string {
+    switch (vuln.dataSource) {
+      case 'osv': return 'OSV';
+      case 'hybrid': return 'NIST+OSV';
+      case 'nist': return 'NIST';
+      default: return 'NIST';
+    }
+  }
+
+  /**
+   * 取得來源標記的樣式類別
+   */
+  getVulnSourceClass(vuln: Vulnerability): string {
+    switch (vuln.dataSource) {
+      case 'osv': return 'source-osv';
+      case 'hybrid': return 'source-hybrid';
+      default: return 'source-nist';
+    }
+  }
   
 }

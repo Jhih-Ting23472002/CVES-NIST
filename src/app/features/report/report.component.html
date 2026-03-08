@@ -18,6 +18,10 @@
           <mat-icon>schedule</mat-icon>
           {{ formatScanTimestamp() }}
         </time>
+        <span class="data-source-label">
+          <mat-icon>storage</mat-icon>
+          資料來源：{{ getDataSourceLabel() }}
+        </span>
       </div>
     </div>
   </header>

@@ -47,13 +47,31 @@
           <a routerLink="/database" class="database-link">前往資料庫管理</a>
         </div>
         
+        <!-- OSV 補充資料來源選項 -->
+        <div class="osv-scan-option">
+          <mat-slide-toggle
+            [(ngModel)]="useOsvSource"
+            [disabled]="isScanning">
+            啟用 OSV.dev 補充資料
+          </mat-slide-toggle>
+          <mat-icon
+            [matTooltip]="useLocalScan
+              ? 'OSV.dev 可補充本地 NVD 資料庫的漏報（如 GHSA 條目）。需要網路連線，不影響離線的本地掃描速度。'
+              : 'OSV.dev 提供額外的開源漏洞資料，可降低漏報率。免費、無需 API 金鑰。'"
+            class="info-icon">
+            info
+          </mat-icon>
+          <span class="scan-type-badge osv" *ngIf="useOsvSource">+ OSV</span>
+          <span class="scan-type-badge local" *ngIf="useOsvSource && useLocalScan" style="margin-left:0">需網路</span>
+        </div>
+
         <div class="background-scan-option">
-          <mat-slide-toggle 
+          <mat-slide-toggle
             [(ngModel)]="useBackgroundScan"
             [disabled]="isScanning">
             背景掃描模式
           </mat-slide-toggle>
-          <mat-icon 
+          <mat-icon
             matTooltip="背景掃描允許您在掃描進行時繼續使用其他功能，掃描完成時會收到通知"
             class="info-icon">
             info

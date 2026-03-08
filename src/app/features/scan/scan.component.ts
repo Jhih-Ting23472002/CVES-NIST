@@ -13,7 +13,8 @@ import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { Subscription } from 'rxjs';
+import { Subscription, from, of } from 'rxjs';
+import { map, switchMap } from 'rxjs/operators';
 
 import { NistApiService } from '../../core/services/nist-api.service';
 import { BackgroundScanService } from '../../core/services/background-scan.service';
@@ -21,6 +22,8 @@ import { getDatabaseConfig } from '../../core/config/database.config';
 import { LoadingOverlayComponent } from '../../shared/components/loading-overlay.component';
 import { FileParserService } from '../../core/services/file-parser.service';
 import { LocalScanService } from '../../core/services/local-scan.service';
+import { OsvApiService } from '../../core/services/osv-api.service';
+import { VulnerabilityMergeService } from '../../core/services/vulnerability-merge.service';
 import {
   PackageInfo,
   Vulnerability,
@@ -76,6 +79,9 @@ export class ScanComponent implements OnInit, OnDestroy {
   // 來源檔案名稱
   sourceFileName = '';
 
+  // OSV 補充來源
+  useOsvSource = true;
+
   // 本地掃描相關
   useLocalScan = false;
   isLocalDatabaseReady = false;
@@ -99,6 +105,8 @@ export class ScanComponent implements OnInit, OnDestroy {
     public backgroundScanService: BackgroundScanService,
     public fileParserService: FileParserService,
     private localScanService: LocalScanService,
+    private osvApiService: OsvApiService,
+    private vulnerabilityMergeService: VulnerabilityMergeService,
     private snackBar: MatSnackBar
   ) {
     // 從路由狀態取得套件清單和背景任務資訊
@@ -208,7 +216,11 @@ export class ScanComponent implements OnInit, OnDestroy {
   
   startScan(): void {
     if (this.packages.length === 0) return;
-    
+
+    // 同步 OSV 設定到 NistApiService
+    this.nistApiService.setUseOsvSource(this.useOsvSource);
+    this.scanConfig.useOsvSource = this.useOsvSource;
+
     if (this.useBackgroundScan) {
       this.startBackgroundScan();
     } else {
@@ -263,7 +275,35 @@ export class ScanComponent implements OnInit, OnDestroy {
     
     // 根據設置選擇掃描方法
     if (this.useLocalScan && this.isLocalDatabaseReady) {
-      this.scanSubscription = this.localScanService.scanMultiplePackagesWithProgress(this.packages).subscribe({
+      // 將 OSV 查詢包成 Promise，本地掃描完成後 await OSV 結果再合併
+      const osvPromise: Promise<Map<string, any[]>> = this.useOsvSource
+        ? new Promise(resolve => {
+            this.osvApiService.searchBatch(this.packages).subscribe({
+              next: resultMap => {
+                console.log(`[OSV] 本地掃描補充查詢完成，取得 ${resultMap.size} 個套件結果`);
+                resolve(resultMap);
+              },
+              error: () => {
+                console.warn('[OSV] 本地掃描補充查詢失敗，僅使用本地結果');
+                resolve(new Map());
+              }
+            });
+          })
+        : Promise.resolve(new Map());
+
+      this.scanSubscription = this.localScanService.scanMultiplePackagesWithProgress(this.packages).pipe(
+        switchMap((response: any) => {
+          if (response.type === 'result' && response.results && this.useOsvSource) {
+            return from(osvPromise).pipe(
+              map(osvResultMap => ({
+                ...response,
+                results: this.vulnerabilityMergeService.mergeBatchResults(response.results, osvResultMap)
+              }))
+            );
+          }
+          return of(response);
+        })
+      ).subscribe({
         next: (response) => this.handleScanResponse(response),
         error: (error) => this.handleScanError(error, '本地掃描失敗，將改為 API 掃描')
       });

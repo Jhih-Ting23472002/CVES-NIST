@@ -1,6 +1,6 @@
 import { Injectable, OnDestroy } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable, throwError, of } from 'rxjs';
+import { Observable, throwError, of, from } from 'rxjs';
 import { map, catchError, tap, switchMap } from 'rxjs/operators';
 import {
   NistApiResponse,
@@ -13,6 +13,9 @@ import {
 import { Vulnerability, PackageInfo } from '../models/vulnerability.model';
 import { CacheService } from './cache.service';
 import { LocalScanService } from './local-scan.service';
+import { OsvApiService } from './osv-api.service';
+import { VulnerabilityMergeService } from './vulnerability-merge.service';
+import { isVulnerabilityFixed, compareVersions } from '../../shared/utils/version-utils';
 
 @Injectable({
   providedIn: 'root'
@@ -28,10 +31,15 @@ export class NistApiService implements OnDestroy {
   private cleanupInterval: any; // 定期清理過期請求的定時器
   private cpeCache: Map<string, string[]> = new Map(); // CPE 名稱快取
 
+  // OSV 整合設定
+  private _useOsvSource = true;
+
   constructor(
     private http: HttpClient,
     private cacheService: CacheService,
-    private localScanService: LocalScanService
+    private localScanService: LocalScanService,
+    private osvApiService: OsvApiService,
+    private vulnerabilityMergeService: VulnerabilityMergeService
   ) {
     // 每30秒清理一次過期請求記錄
     this.cleanupInterval = setInterval(() => {
@@ -70,6 +78,20 @@ export class NistApiService implements OnDestroy {
   }
 
   /**
+   * 設定是否使用 OSV 補充資料來源
+   */
+  setUseOsvSource(enabled: boolean): void {
+    this._useOsvSource = enabled;
+  }
+
+  /**
+   * 取得 OSV 來源是否啟用
+   */
+  getUseOsvSource(): boolean {
+    return this._useOsvSource;
+  }
+
+  /**
    * 執行 API 掃描（原有邏輯）
    */
   private performApiScan(packageName: string, version?: string): Observable<Vulnerability[]> {
@@ -98,6 +120,15 @@ export class NistApiService implements OnDestroy {
         console.log(`找到 ${cpeNames.length} 個 CPE 名稱，開始查詢 CVE`);
         // 步驟 2: 使用 CPE 名稱查詢 CVE API
         return this.searchVulnerabilitiesByCpe(cpeNames);
+      }),
+      map(vulnerabilities => {
+        if (!version) return vulnerabilities;
+        // 過濾掉當前版本已修復的漏洞
+        const filtered = vulnerabilities.filter(vuln => {
+          return !isVulnerabilityFixed(version, vuln.affectedVersions, vuln.fixedVersion);
+        });
+        console.log(`[API] 版本過濾: ${vulnerabilities.length} → ${filtered.length} (${packageName}@${version})`);
+        return filtered;
       }),
       tap(vulnerabilities => {
         // 快取結果
@@ -164,12 +195,42 @@ export class NistApiService implements OnDestroy {
     results?: {packageName: string, vulnerabilities: Vulnerability[]}[],
     error?: string
   }> {
+    // 在掃描開始時擷取設定快照，避免掃描中途使用者切換 toggle 造成行為不一致
+    const useOsv = this._useOsvSource;
     // 檢查是否可以使用本地掃描
     return this.localScanService.isDatabaseReady().pipe(
       switchMap(isLocalReady => {
         if (isLocalReady) {
           console.log('使用本地資料庫批次掃描');
+
+          // 將 OSV 查詢包成 Promise，確保本地掃描完成時能 await OSV 結果
+          const osvPromise: Promise<Map<string, Vulnerability[]>> = useOsv
+            ? new Promise(resolve => {
+                this.osvApiService.searchBatch(packages).subscribe({
+                  next: resultMap => {
+                    console.log(`[OSV] 本地批次補充查詢完成，取得 ${resultMap.size} 個套件結果`);
+                    resolve(resultMap);
+                  },
+                  error: () => {
+                    console.warn('[OSV] 本地批次補充查詢失敗，僅使用本地結果');
+                    resolve(new Map());
+                  }
+                });
+              })
+            : Promise.resolve(new Map());
+
           return this.localScanService.scanMultiplePackagesWithProgress(packages).pipe(
+            switchMap(event => {
+              if (event.type === 'result' && event.results && useOsv) {
+                return from(osvPromise).pipe(
+                  map(osvResultMap => ({
+                    ...event,
+                    results: this.vulnerabilityMergeService.mergeBatchResults(event.results!, osvResultMap)
+                  }))
+                );
+              }
+              return of(event);
+            }),
             catchError(localError => {
               console.warn('本地批次掃描失敗，回退到 API 掃描:', localError);
               return this.performApiBatchScan(packages);
@@ -198,12 +259,42 @@ export class NistApiService implements OnDestroy {
     packageIndex?: number,
     error?: string
   }> {
+    // 在掃描開始時擷取設定快照，避免掃描中途使用者切換 toggle 造成行為不一致
+    const useOsv = this._useOsvSource;
     // 檢查是否可以使用本地掃描
     return this.localScanService.isDatabaseReady().pipe(
       switchMap(isLocalReady => {
         if (isLocalReady) {
           console.log(`使用本地資料庫批次掃描，從索引 ${startFromIndex} 開始`);
+
+          // 將 OSV 查詢包成 Promise，確保本地掃描完成時能 await OSV 結果
+          const osvPromise: Promise<Map<string, Vulnerability[]>> = useOsv
+            ? new Promise(resolve => {
+                this.osvApiService.searchBatch(packages).subscribe({
+                  next: resultMap => {
+                    console.log(`[OSV] 本地斷點續掃補充查詢完成，取得 ${resultMap.size} 個套件結果`);
+                    resolve(resultMap);
+                  },
+                  error: () => {
+                    console.warn('[OSV] 本地斷點續掃補充查詢失敗，僅使用本地結果');
+                    resolve(new Map());
+                  }
+                });
+              })
+            : Promise.resolve(new Map());
+
           return this.localScanService.scanMultiplePackagesWithProgressResumable(packages, startFromIndex, totalPackagesCount).pipe(
+            switchMap(event => {
+              if (event.type === 'result' && event.results && useOsv) {
+                return from(osvPromise).pipe(
+                  map(osvResultMap => ({
+                    ...event,
+                    results: this.vulnerabilityMergeService.mergeBatchResults(event.results!, osvResultMap)
+                  }))
+                );
+              }
+              return of(event);
+            }),
             catchError(localError => {
               console.warn('本地斷點續掃失敗，回退到 API 掃描:', localError);
               return this.performApiBatchScanResumable(packages, startFromIndex, totalPackagesCount);
@@ -218,7 +309,7 @@ export class NistApiService implements OnDestroy {
   }
 
   /**
-   * 執行 API 批次掃描（原有邏輯）
+   * 執行 API 批次掃描（整合 OSV 補充資料）
    */
   private performApiBatchScan(packages: PackageInfo[]): Observable<{
     type: 'progress' | 'result' | 'error',
@@ -227,10 +318,28 @@ export class NistApiService implements OnDestroy {
     error?: string
   }> {
     const results: {packageName: string, vulnerabilities: Vulnerability[]}[] = [];
+    // 掃描開始時快照 OSV 設定，避免掃描中途使用者切換 toggle 導致行為不一致
+    const useOsv = this._useOsvSource;
 
     return new Observable(observer => {
       let timeoutIds: any[] = []; // 記錄所有的 timeout ID
       let cancelled = false; // 取消標誌
+
+      // OSV 查詢包成 Promise，NIST 完成後 await 再合併
+      const osvPromise: Promise<Map<string, Vulnerability[]>> = useOsv
+        ? new Promise(resolve => {
+            this.osvApiService.searchBatch(packages).subscribe({
+              next: resultMap => {
+                console.log(`[OSV] 批次查詢完成，取得 ${resultMap.size} 個套件結果`);
+                resolve(resultMap);
+              },
+              error: () => {
+                console.warn('[OSV] 批次查詢失敗，將僅使用 NIST 結果');
+                resolve(new Map());
+              }
+            });
+          })
+        : Promise.resolve(new Map());
 
       const processPackage = (index: number, retryCount: number = 0) => {
         // 檢查是否已取消
@@ -239,11 +348,15 @@ export class NistApiService implements OnDestroy {
           return;
         }
         if (index >= packages.length) {
-          observer.next({
-            type: 'result',
-            results: results
+          // NIST 掃描完成，等待 OSV 結果後合併
+          osvPromise.then(osvResultMap => {
+            if (cancelled) { observer.complete(); return; }
+            const finalResults = useOsv
+              ? this.vulnerabilityMergeService.mergeBatchResults(results, osvResultMap)
+              : results;
+            observer.next({ type: 'result', results: finalResults });
+            observer.complete();
           });
-          observer.complete();
           return;
         }
 
@@ -324,11 +437,11 @@ export class NistApiService implements OnDestroy {
   }
 
   /**
-   * 執行 API 批次掃描，支援斷點續掃
+   * 執行 API 批次掃描，支援斷點續掃（整合 OSV 補充資料）
    */
   private performApiBatchScanResumable(
-    packages: PackageInfo[], 
-    startFromIndex: number = 0, 
+    packages: PackageInfo[],
+    startFromIndex: number = 0,
     totalPackagesCount: number
   ): Observable<{
     type: 'progress' | 'result' | 'error' | 'packageResult',
@@ -339,23 +452,45 @@ export class NistApiService implements OnDestroy {
     error?: string
   }> {
     const results: {packageName: string, vulnerabilities: Vulnerability[]}[] = [];
+    // 掃描開始時快照 OSV 設定，避免掃描中途使用者切換 toggle 導致行為不一致
+    const useOsv = this._useOsvSource;
 
     return new Observable(observer => {
       let timeoutIds: any[] = [];
       let cancelled = false;
+
+      // OSV 查詢包成 Promise，NIST 完成後 await 再合併
+      const osvPromise: Promise<Map<string, Vulnerability[]>> = useOsv
+        ? new Promise(resolve => {
+            this.osvApiService.searchBatch(packages).subscribe({
+              next: resultMap => {
+                console.log(`[OSV] 斷點續掃批次查詢完成，取得 ${resultMap.size} 個套件結果`);
+                resolve(resultMap);
+              },
+              error: () => {
+                console.warn('[OSV] 斷點續掃批次查詢失敗，將僅使用 NIST 結果');
+                resolve(new Map());
+              }
+            });
+          })
+        : Promise.resolve(new Map());
 
       const processPackage = (index: number, retryCount: number = 0) => {
         if (cancelled) {
           observer.complete();
           return;
         }
-        
+
         if (index >= packages.length) {
-          observer.next({
-            type: 'result',
-            results: results
+          // NIST 掃描完成，等待 OSV 結果後合併
+          osvPromise.then(osvResultMap => {
+            if (cancelled) { observer.complete(); return; }
+            const finalResults = useOsv
+              ? this.vulnerabilityMergeService.mergeBatchResults(results, osvResultMap)
+              : results;
+            observer.next({ type: 'result', results: finalResults });
+            observer.complete();
           });
-          observer.complete();
           return;
         }
 
@@ -961,21 +1096,9 @@ export class NistApiService implements OnDestroy {
    */
   private getLowestVersion(versions: string[]): string | undefined {
     if (versions.length === 0) return undefined;
-    
-    // 簡單排序，實際應該使用 semver 比較
-    return versions.sort((a, b) => {
-      const aParts = a.split('.').map(n => parseInt(n) || 0);
-      const bParts = b.split('.').map(n => parseInt(n) || 0);
-      
-      for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-        const aPart = aParts[i] || 0;
-        const bPart = bParts[i] || 0;
-        if (aPart !== bPart) {
-          return aPart - bPart;
-        }
-      }
-      return 0;
-    })[0];
+    return versions.reduce((lowest, current) => {
+      return compareVersions(current, lowest) < 0 ? current : lowest;
+    });
   }
 
 

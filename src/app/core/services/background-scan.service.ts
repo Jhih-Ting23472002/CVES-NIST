@@ -176,22 +176,22 @@ export class BackgroundScanService {
     if (!task) return;
 
     const wasRunning = task.status === 'running';
-    if (wasRunning) {
-      this.stopCurrentScan$.next();
-    }
 
     task.status = 'cancelled';
     task.completedAt = new Date();
 
-    // 移動到已完成清單
+    // 移動到已完成清單（必須在 stopCurrentScan$.next() 之前完成）
     this.moveToCompleted(task);
     this.currentTaskSubject.next(null);
 
     console.log(`取消掃描任務: ${task.name}`);
 
     // 取消正在執行的任務後，透過 finalize 自動啟動下一個待執行任務
+    // 注意：_shouldStartNext 必須在 stopCurrentScan$.next() 之前設定，
+    // 因為 takeUntil 會同步觸發 finalize，此時旗標需已就緒
     if (wasRunning) {
       this._shouldStartNext = true;
+      this.stopCurrentScan$.next();
     }
   }
 
@@ -424,6 +424,9 @@ export class BackgroundScanService {
           this.sendErrorNotification(task);
           
           console.error(`背景掃描失敗: ${task.name}`, error);
+
+          // 掃描失敗後仍要啟動下一個待執行任務
+          this._shouldStartNext = true;
         }
       });
   }

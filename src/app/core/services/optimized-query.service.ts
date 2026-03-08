@@ -340,8 +340,8 @@ export class OptimizedQueryService {
     request.onsuccess = (event) => {
       const cursor = (event.target as IDBRequest).result;
       if (!cursor) {
-        // affectedProducts 索引可能未包含所有記錄（Worker 優化路徑不重建索引），
-        // 即使已有部分結果，仍需全表掃描以補齊未被索引的記錄
+        // 索引掃描結束，一律執行全表掃描補齊 affectedProducts 未完整建立的記錄
+        // performFullScanSearch 內部以 existingIds 去重，不會重複加入已找到的結果
         this.performFullScanSearch(store, query, results, observer, 'exact');
         return;
       }
@@ -578,13 +578,9 @@ export class OptimizedQueryService {
     observer: any
   ): void {
     if (keyIdx >= keys.length) {
-      if (results.length === 0) {
-        // 索引全部未命中，回退全表掃描（含模糊匹配）
-        this.performFullScanSearch(store, query, results, observer, 'combined');
-      } else {
-        observer.next(results);
-        observer.complete();
-      }
+      // 所有索引鍵皆已嘗試，一律執行全表掃描補齊未索引的記錄
+      // performFullScanSearch 內部以 existingIds 去重
+      this.performFullScanSearch(store, query, results, observer, 'combined');
       return;
     }
 
@@ -671,13 +667,38 @@ export class OptimizedQueryService {
       }
     } else {
       // 模糊匹配
+      const MIN_FUZZY_LENGTH = 3;
+      if (searchName.length < MIN_FUZZY_LENGTH || productName.length < MIN_FUZZY_LENGTH) {
+        // 太短的名稱退化為精確匹配
+        if (productName === searchName) return true;
+        if (productInfo.aliases) {
+          return productInfo.aliases.some((alias: string) => alias.toLowerCase() === searchName);
+        }
+        return false;
+      }
+
+      // 長度差異限制：差異超過較短方 50% 時拒絕匹配
+      const shorter = Math.min(searchName.length, productName.length);
+      const longer = Math.max(searchName.length, productName.length);
+      if (longer - shorter > shorter * 0.5) {
+        return false;
+      }
+
       if (productName.includes(searchName) || searchName.includes(productName)) {
         return true;
       }
-      
+
       if (productInfo.aliases) {
         return productInfo.aliases.some((alias: string) => {
           const aliasLower = alias.toLowerCase();
+          if (aliasLower.length < MIN_FUZZY_LENGTH) {
+            return aliasLower === searchName;
+          }
+          const aliasLen = aliasLower.length;
+          const searchLen = searchName.length;
+          const aShorter = Math.min(aliasLen, searchLen);
+          const aLonger = Math.max(aliasLen, searchLen);
+          if (aLonger - aShorter > aShorter * 0.5) return false;
           return aliasLower.includes(searchName) || searchName.includes(aliasLower);
         });
       }
@@ -693,7 +714,7 @@ export class OptimizedQueryService {
     if (!version) return true;
     
     if (!productInfo.versionRanges || productInfo.versionRanges.length === 0) {
-      return true; // 沒有版本限制，預設為受影響
+      return false; // 無版本範圍資訊，無法確認受影響，保守跳過
     }
 
     // 檢查所有版本範圍
@@ -720,7 +741,7 @@ export class OptimizedQueryService {
       return true;
     } catch (error) {
       console.warn('優化版本比較失敗:', error);
-      return true;
+      return false;
     }
   }
 
@@ -791,7 +812,8 @@ export class OptimizedQueryService {
     // 降級匹配：product 欄位的受控模糊比對（處理 moment/momentjs 等後綴變體）
     const normalizedCpeProduct = this.normalizeName(cpeProduct);
     const lenDiff = Math.abs(normalizedCpeProduct.length - normalizedPackage.length);
-    if (lenDiff > 0 && lenDiff <= 3 &&
+    const minLen = Math.min(normalizedCpeProduct.length, normalizedPackage.length);
+    if (minLen >= 4 && lenDiff > 0 && lenDiff <= 3 &&
         (normalizedCpeProduct.includes(normalizedPackage) || normalizedPackage.includes(normalizedCpeProduct))) {
       return true;
     }
