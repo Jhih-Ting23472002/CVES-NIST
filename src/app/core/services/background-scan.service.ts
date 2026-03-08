@@ -110,7 +110,10 @@ export class BackgroundScanService {
     this.pauseAllTasks();
 
     task.status = 'running';
-    task.startedAt = new Date();
+    // 只在第一次啟動時設定 startedAt，繼續掃描時保留原始開始時間
+    if (!task.startedAt) {
+      task.startedAt = new Date();
+    }
 
     // 初始化或恢復進度顯示
     const resumeFromIndex = (task.lastScannedIndex ?? -1) + 1;
@@ -293,9 +296,10 @@ export class BackgroundScanService {
       )
       .subscribe({
         next: (response) => {
-          if (response.type === 'result' && response.results) {
-            // 掃描完成，合併所有結果
-            const finalResults = [...(task.intermediateResults || []), ...response.results];
+          if (response.type === 'result') {
+            // 掃描完成，intermediateResults 已透過 packageResult 事件即時累積所有結果
+            // 不再合併 response.results 以避免重複
+            const finalResults = [...(task.intermediateResults || [])];
             task.status = 'completed';
             task.results = finalResults;
             task.completedAt = new Date();
@@ -337,6 +341,8 @@ export class BackgroundScanService {
       }
     });
     this.stopCurrentScan$.next();
+    this.saveState();
+    this.stateSubject.next(this.state);
   }
 
   /**
