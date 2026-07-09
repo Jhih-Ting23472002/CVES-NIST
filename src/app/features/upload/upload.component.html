@@ -208,6 +208,14 @@
                       </div>
                     </mat-radio-group>
 
+                    <mat-slide-toggle
+                      class="exclude-dev-toggle"
+                      [(ngModel)]="excludeDevDeps"
+                      (change)="onExcludeDevDepsChange()"
+                      matTooltip="等同 npx @cyclonedx/cyclonedx-npm --omit dev：dev 相依與其間接相依不掃描、也不納入 SBOM 匯出">
+                      排除 dev 相依（--omit dev）
+                    </mat-slide-toggle>
+
                     <div class="scan-stats" *ngIf="allPackages.length > 0">
                       <mat-icon>info</mat-icon>
                       <span>{{ getScanStats() }}</span>

@@ -16,6 +16,7 @@ import { MatExpansionModule } from '@angular/material/expansion';
 import { MatBadgeModule } from '@angular/material/badge';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatDividerModule } from '@angular/material/divider';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { FormsModule } from '@angular/forms';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 
@@ -46,6 +47,7 @@ import { PackageInfo, ValidationResult, ScanConfig, DEFAULT_SCAN_CONFIGS } from 
     MatBadgeModule,
     MatMenuModule,
     MatDividerModule,
+    MatSlideToggleModule,
     ScrollingModule
   ],
   templateUrl: './upload.component.html',
@@ -66,6 +68,7 @@ export class UploadComponent implements OnInit {
   packages: PackageInfo[] = [];
   allPackages: PackageInfo[] = [];
   currentScanConfig: ScanConfig = DEFAULT_SCAN_CONFIGS['balanced'];
+  excludeDevDeps = false; // 排除 dev 相依（等同 npm --omit dev），掃描與 SBOM 匯出共用
   estimatedScanTime: { estimatedMinutes: number; description: string } | null = null;
   
   // UI 狀態控制
@@ -326,30 +329,43 @@ export class UploadComponent implements OnInit {
   onScanModeChange(mode: string): void {
     const selectedMode = this.scanModes.find(m => m.value === mode);
     if (selectedMode && this.selectedFile) {
-      this.currentScanConfig = selectedMode.config;
-      
-      // 重新過濾套件
-      this.fileParserService.parsePackageFile(this.selectedFile, this.currentScanConfig).subscribe({
-        next: (filteredPackages) => {
-          this.packages = filteredPackages;
-          this.estimatedScanTime = this.fileParserService.estimateScanTime(filteredPackages);
-          
-          const originalCount = this.allPackages.length;
-          const filteredCount = filteredPackages.length;
-          
-          if (originalCount !== filteredCount) {
-            this.snackBar.open(
-              `已切換至${selectedMode.label}，顯示 ${filteredCount}/${originalCount} 個套件`, 
-              '確定', 
-              { duration: 3000 }
-            );
-          }
-        },
-        error: (error) => {
-          console.error('重新過濾套件失敗:', error);
-        }
-      });
+      this.currentScanConfig = this.buildScanConfig(selectedMode.config);
+      this.refilterPackages(`已切換至${selectedMode.label}`);
     }
+  }
+
+  // 切換「排除 dev 相依」（等同 npm --omit dev）
+  onExcludeDevDepsChange(): void {
+    const modeConfig = this.scanModes.find(m => m.value === this.currentScanConfig.mode)?.config
+      ?? DEFAULT_SCAN_CONFIGS['balanced'];
+    this.currentScanConfig = this.buildScanConfig(modeConfig);
+    this.refilterPackages(this.excludeDevDeps ? '已排除 dev 相依' : '已包含 dev 相依');
+  }
+
+  // 以模式預設為基礎，套用「排除 dev 相依」覆寫
+  private buildScanConfig(base: ScanConfig): ScanConfig {
+    return this.excludeDevDeps ? { ...base, includeDevDeps: false } : { ...base };
+  }
+
+  // 依目前配置重新過濾套件清單（掃描與 SBOM 匯出皆使用此清單）
+  private refilterPackages(actionLabel: string): void {
+    if (!this.selectedFile) return;
+
+    this.fileParserService.parsePackageFile(this.selectedFile, this.currentScanConfig).subscribe({
+      next: (filteredPackages) => {
+        this.packages = filteredPackages;
+        this.estimatedScanTime = this.fileParserService.estimateScanTime(filteredPackages);
+
+        this.snackBar.open(
+          `${actionLabel}，顯示 ${filteredPackages.length}/${this.allPackages.length} 個套件`,
+          '確定',
+          { duration: 3000 }
+        );
+      },
+      error: (error) => {
+        console.error('重新過濾套件失敗:', error);
+      }
+    });
   }
 
   // 取得當前模式描述

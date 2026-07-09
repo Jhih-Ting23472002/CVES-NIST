@@ -546,7 +546,8 @@ export class FileParserService implements IFileParserService {
     }
 
     if (!config.includeDevDeps) {
-      filteredPackages = filteredPackages.filter(pkg => pkg.type !== 'devDependency');
+      // 等同 npm --omit dev：直接 devDependency 與 dev-only transitive（dev: true）都排除
+      filteredPackages = filteredPackages.filter(pkg => pkg.type !== 'devDependency' && !pkg.dev);
     }
 
     if (!config.includeTransitive) {
