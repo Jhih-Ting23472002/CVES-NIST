@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, of, forkJoin, throwError } from 'rxjs';
-import { map, catchError, tap } from 'rxjs/operators';
+import { map, catchError, tap, switchMap } from 'rxjs/operators';
 import {
   OsvQueryRequest,
   OsvBatchQueryRequest,
@@ -189,26 +189,71 @@ export class OsvApiService implements IVulnerabilityProvider {
       `${this.OSV_API_URL}/querybatch`,
       request
     ).pipe(
-      map(response => {
-        const resultMap = new Map<string, Vulnerability[]>();
+      // querybatch 僅回傳 { id, modified }，需逐一補抓 /vulns/{id} 取得完整細節
+      switchMap(response => {
+        const ids = new Set<string>();
+        response.results.forEach(r => (r.vulns || []).forEach(v => ids.add(v.id)));
 
-        response.results.forEach((result, index) => {
-          const pkg = packages[index];
-          const packageKey = pkg.packageKey || `${pkg.name}@${pkg.version}`;
-          const vulns = (result.vulns || []).map(v => this.transformOsvToVulnerability(v));
+        return this.hydrateVulnerabilities([...ids]).pipe(
+          map(detailMap => {
+            const resultMap = new Map<string, Vulnerability[]>();
 
-          resultMap.set(packageKey, vulns);
+            response.results.forEach((result, index) => {
+              const pkg = packages[index];
+              const packageKey = pkg.packageKey || `${pkg.name}@${pkg.version}`;
+              const vulns = (result.vulns || []).map(v =>
+                this.transformOsvToVulnerability(detailMap.get(v.id) || v)
+              );
 
-          // 快取個別套件結果
-          const cacheKey = `${this.CACHE_PREFIX}${pkg.name}@${pkg.version}`;
-          this.cacheService.set(cacheKey, vulns, 24 * 60 * 60 * 1000);
-        });
+              resultMap.set(packageKey, vulns);
 
-        return resultMap;
+              // 快取個別套件結果
+              const cacheKey = `${this.CACHE_PREFIX}${pkg.name}@${pkg.version}`;
+              this.cacheService.set(cacheKey, vulns, 24 * 60 * 60 * 1000);
+            });
+
+            return resultMap;
+          })
+        );
       }),
       catchError(error => {
         console.warn('[OSV] 批次查詢失敗:', error.message);
         return of(new Map<string, Vulnerability[]>());
+      })
+    );
+  }
+
+  /**
+   * 補抓漏洞完整細節（querybatch 只回 id，需逐一查 /vulns/{id}）
+   * 以 id 為單位快取，回傳 id -> 完整 OsvVulnerability 對照表
+   */
+  private hydrateVulnerabilities(ids: string[]): Observable<Map<string, OsvVulnerability>> {
+    if (ids.length === 0) {
+      return of(new Map());
+    }
+
+    const requests = ids.map(id => {
+      const cacheKey = `${this.CACHE_PREFIX}vuln:${id}`;
+      const cached = this.cacheService.get<OsvVulnerability>(cacheKey);
+      if (cached) {
+        return of(cached);
+      }
+      return this.http.get<OsvVulnerability>(`${this.OSV_API_URL}/vulns/${id}`).pipe(
+        tap(detail => this.cacheService.set(cacheKey, detail, 24 * 60 * 60 * 1000)),
+        catchError(error => {
+          console.warn(`[OSV] 取得 ${id} 細節失敗:`, error.message);
+          return of<OsvVulnerability | null>(null);
+        })
+      );
+    });
+
+    return forkJoin(requests).pipe(
+      map(details => {
+        const detailMap = new Map<string, OsvVulnerability>();
+        details.forEach(d => {
+          if (d) detailMap.set(d.id, d);
+        });
+        return detailMap;
       })
     );
   }

@@ -214,6 +214,8 @@ describe('OsvApiService', () => {
     it('should batch query all packages', (done) => {
       service.searchBatch(packages).subscribe(resultMap => {
         expect(resultMap.size).toBe(2);
+        // 修復版本應從補抓的細節帶出，而非 querybatch 骨架
+        expect(resultMap.get('test-pkg@1.0.0')?.[0].fixedVersion).toBe('1.2.3');
         done();
       });
 
@@ -222,10 +224,15 @@ describe('OsvApiService', () => {
       expect(req.request.body.queries.length).toBe(2);
       req.flush({
         results: [
-          { vulns: [mockOsvVuln] },
+          { vulns: [{ id: mockOsvVuln.id, modified: mockOsvVuln.modified }] },
           { vulns: [] }
         ]
       });
+
+      // querybatch 只回 id，需補抓 /vulns/{id} 細節
+      const detailReq = httpMock.expectOne(`https://api.osv.dev/v1/vulns/${mockOsvVuln.id}`);
+      expect(detailReq.request.method).toBe('GET');
+      detailReq.flush(mockOsvVuln);
     });
 
     it('should return partial cached + new API results', (done) => {
