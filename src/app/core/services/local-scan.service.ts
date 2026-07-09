@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { Observable, BehaviorSubject, forkJoin, of } from 'rxjs';
-import { map, switchMap, catchError, tap } from 'rxjs/operators';
+import { map, switchMap, catchError, tap, take } from 'rxjs/operators';
 import { NvdDatabaseService } from './nvd-database.service';
 import { OptimizedQueryService } from './optimized-query.service';
 import { NvdSyncService } from './nvd-sync.service';
@@ -725,7 +725,11 @@ export class LocalScanService {
       catchError(error => {
         console.warn('檢查資料庫準備狀態失敗:', error);
         return [false];
-      })
+      }),
+      // isReady$ 是永不結束的 BehaviorSubject，狀態變動會重發值。
+      // 掃描決策只需一次快照；不加 take(1) 會讓 switchMap 重跑整個掃描，
+      // 導致同一背景任務被 moveToCompleted 多次、出現重複任務。
+      take(1)
     );
   }
 

@@ -98,6 +98,30 @@ describe('BackgroundScanService - 背景任務結果應保留 OSV 合併資料',
     expect(lodashResult?.vulnerabilities[0].fixedVersion).toBe('4.17.21');
   });
 
+  it('掃描來源重複發出 result 時，已完成任務不應重複（moveToCompleted 冪等）', async () => {
+    // 回歸測試：isReady$（永不結束的 BehaviorSubject）重發值會讓 switchMap 重跑掃描，
+    // 使同一 task 的 result 事件出現多次。moveToCompleted 必須以 id 去重，避免重複列。
+    nistApiServiceSpy.searchMultiplePackagesWithProgressResumable.and.returnValue(
+      of(
+        {
+          type: 'result' as const,
+          results: [{ packageName: 'lodash@4.17.20', vulnerabilities: [] }]
+        },
+        {
+          type: 'result' as const,
+          results: [{ packageName: 'lodash@4.17.20', vulnerabilities: [] }]
+        }
+      )
+    );
+
+    const taskId = service.createScanTask('重複任務', mockPackages, mockConfig, true);
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    let completedTasks: any[] = [];
+    service.state$.subscribe(s => (completedTasks = s.completedTasks)).unsubscribe();
+    expect(completedTasks.filter(t => t.id === taskId).length).toBe(1);
+  });
+
   it('斷點續掃時，result 只涵蓋本次掃描的套件，不應弄丟先前已保存的結果', async () => {
     nistApiServiceSpy.searchMultiplePackagesWithProgressResumable.and.returnValue(
       of(

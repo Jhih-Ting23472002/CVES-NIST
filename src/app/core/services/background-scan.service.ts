@@ -466,7 +466,8 @@ export class BackgroundScanService {
   private moveToCompleted(task: ScanTask): void {
     // 創建新的陣列參考以確保Angular變更檢測正確觸發
     this.state.activeTasks = this.state.activeTasks.filter(t => t.id !== task.id);
-    this.state.completedTasks = [task, ...this.state.completedTasks];
+    // 以 id 去重，避免同一任務被重複搬入（防禦性，杜絕重複列）
+    this.state.completedTasks = [task, ...this.state.completedTasks.filter(t => t.id !== task.id)];
     
     // 限制已完成任務數量（最多保留10個）
     if (this.state.completedTasks.length > 10) {

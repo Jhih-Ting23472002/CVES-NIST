@@ -61,6 +61,7 @@ export class ScanComponent implements OnInit, OnDestroy {
   packages: PackageInfo[] = [];
   isScanning = false;
   scanCompleted = false;
+  isSubmitting = false; // ponytail: 防連點旗標，避免背景掃描 2 秒導航空窗期重複建立任務
   scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[] = [];
   scanTimestamp: Date = new Date();
   scanProgress: ScanProgress = {
@@ -215,7 +216,8 @@ export class ScanComponent implements OnInit, OnDestroy {
   }
   
   startScan(): void {
-    if (this.packages.length === 0) return;
+    if (this.packages.length === 0 || this.isSubmitting) return;
+    this.isSubmitting = true;
 
     // 同步 OSV 設定到 NistApiService
     this.nistApiService.setUseOsvSource(this.useOsvSource);
@@ -370,6 +372,7 @@ export class ScanComponent implements OnInit, OnDestroy {
    */
   private handleScanError(error: any, context: string): void {
     this.isScanning = false;
+    this.isSubmitting = false;
     console.error(`${context}:`, error);
     
     // 如果本地掃描失敗，自動切換到 API 掃描

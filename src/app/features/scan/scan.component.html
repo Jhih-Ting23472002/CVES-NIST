@@ -242,7 +242,7 @@
               color="primary" 
               *ngIf="!currentTask && !isScanning && !scanCompleted" 
               (click)="startScan()"
-              [disabled]="packages.length === 0">
+              [disabled]="packages.length === 0 || isSubmitting">
         <mat-icon>{{ useBackgroundScan ? 'cloud_queue' : 'play_arrow' }}</mat-icon>
         {{ useBackgroundScan ? '開始背景掃描' : '開始掃描' }}
       </button>
