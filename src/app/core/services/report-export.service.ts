@@ -8,7 +8,8 @@ import {
 } from '../../shared/utils/vulnerability-count-utils';
 import { VexAnalysisService } from './vex-analysis.service';
 import { LicenseAnalysisService } from './license-analysis.service';
-import { SbomValidatorService, ValidationResult } from './sbom-validator.service';
+import { CycloneDxSbomService } from './cyclonedx-sbom.service';
+import { SpdxSbomService } from './spdx-sbom.service';
 
 @Injectable({
   providedIn: 'root'
@@ -18,7 +19,8 @@ export class ReportExportService {
   constructor(
     private vexAnalysisService: VexAnalysisService,
     private licenseAnalysisService: LicenseAnalysisService,
-    private sbomValidatorService: SbomValidatorService
+    private cycloneDxSbomService: CycloneDxSbomService,
+    private spdxSbomService: SpdxSbomService
   ) { }
 
   /**
@@ -167,9 +169,12 @@ export class ReportExportService {
     scanTimestamp?: Date,
     includeVulnerabilities: boolean = false
   ): void {
-    const sbom = this.generateCycloneDXSbom(packages, scanResults, scanTimestamp, includeVulnerabilities);
+    const json = this.cycloneDxSbomService.generateBomJson(packages, scanResults, {
+      scanTimestamp,
+      includeVulnerabilities
+    });
 
-    const blob = new Blob([JSON.stringify(sbom, null, 2)], {
+    const blob = new Blob([json], {
       type: 'application/json;charset=utf-8'
     });
 
@@ -186,9 +191,12 @@ export class ReportExportService {
     scanTimestamp?: Date,
     includeVulnerabilities: boolean = false
   ): void {
-    const sbom = this.generateSpdxSbom(packages, scanResults, scanTimestamp, includeVulnerabilities);
+    const json = this.spdxSbomService.generateSbomJson(packages, scanResults, {
+      scanTimestamp,
+      includeVulnerabilities
+    });
 
-    const blob = new Blob([JSON.stringify(sbom, null, 2)], {
+    const blob = new Blob([json], {
       type: 'application/json;charset=utf-8'
     });
 
@@ -593,401 +601,13 @@ export class ReportExportService {
     return date.toISOString().split('T')[0];
   }
 
-  /**
-   * 產生 CycloneDX SBOM
-   */
-  private generateCycloneDXSbom(
-    packages: PackageInfo[],
-    scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[],
-    scanTimestamp?: Date,
-    includeVulnerabilities: boolean = false
-  ): any {
-    const timestamp = scanTimestamp || new Date();
-    
-    const sbom: any = {
-      bomFormat: 'CycloneDX',
-      specVersion: '1.4',
-      serialNumber: `urn:uuid:${this.generateUUID()}`,
-      version: 1,
-      metadata: {
-        timestamp: timestamp.toISOString(),
-        tools: [
-          {
-            vendor: 'CVE Scanner',
-            name: 'cves-nist',
-            version: '1.0.0'
-          }
-        ],
-        component: {
-          type: 'application',
-          name: 'scanned-project',
-          version: '1.0.0'
-        }
-      },
-      components: packages.map(pkg => {
-        const component: any = {
-          type: 'library',
-          'bom-ref': this.generatePackageRef(pkg),
-          name: pkg.name,
-          version: pkg.version,
-          purl: `pkg:npm/${pkg.name}@${pkg.version}`,
-          scope: this.mapPackageTypeToCycloneDXScope(pkg.type),
-          supplier: {
-            name: 'npm registry',
-            url: ['https://www.npmjs.com']
-          },
-          externalReferences: [
-            {
-              type: 'website',
-              url: `https://www.npmjs.com/package/${pkg.name}`
-            },
-            {
-              type: 'distribution',
-              url: pkg.resolved || `https://registry.npmjs.org/${pkg.name}/-/${pkg.name}-${pkg.version}.tgz`
-            }
-          ]
-        };
 
-        if (pkg.description) {
-          component.description = pkg.description;
-        }
 
-        // 改善 license 處理
-        if (pkg.license) {
-          component.licenses = [
-            {
-              license: {
-                id: pkg.license,
-                name: pkg.license
-              }
-            }
-          ];
-        } else {
-          // 常見套件的預設 license 推測
-          const commonLicenses: Record<string, string> = {
-            'lodash': 'MIT',
-            'express': 'MIT',
-            'axios': 'MIT',
-            'react': 'MIT',
-            'vue': 'MIT',
-            'angular': 'MIT',
-            'typescript': 'Apache-2.0',
-            'jest': 'MIT',
-            'crypto-js': 'MIT'
-          };
-          const inferredLicense = commonLicenses[pkg.name];
-          if (inferredLicense) {
-            component.licenses = [
-              {
-                license: {
-                  id: inferredLicense,
-                  name: `${inferredLicense} (inferred)`
-                }
-              }
-            ];
-          }
-        }
 
-        return component;
-      })
-    };
 
-    if (includeVulnerabilities) {
-      sbom.vulnerabilities = this.generateCycloneDXVulnerabilities(packages, scanResults);
-    }
 
-    return sbom;
-  }
 
-  /**
-   * 產生 SPDX SBOM
-   */
-  private generateSpdxSbom(
-    packages: PackageInfo[],
-    scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[],
-    scanTimestamp?: Date,
-    includeVulnerabilities: boolean = false
-  ): any {
-    const timestamp = scanTimestamp || new Date();
-    const documentNamespace = `https://cve-scanner.local/spdx/${this.generateUUID()}`;
-    
-    const sbom: any = {
-      spdxVersion: 'SPDX-2.3',
-      dataLicense: 'CC0-1.0',
-      SPDXID: 'SPDXRef-DOCUMENT',
-      name: 'CVE Scanner Report',
-      documentNamespace: documentNamespace,
-      creationInfo: {
-        created: timestamp.toISOString(),
-        creators: ['Tool: CVE Scanner'],
-        licenseListVersion: '3.21'
-      },
-      packages: [
-        {
-          SPDXID: 'SPDXRef-Package-root',
-          name: 'scanned-project',
-          downloadLocation: 'NOASSERTION',
-          filesAnalyzed: false,
-          copyrightText: 'NOASSERTION',
-          licenseConcluded: 'NOASSERTION',
-          licenseDeclared: 'NOASSERTION'
-        },
-        ...packages.map((pkg, index) => {
-          const packageSpdxId = `SPDXRef-Package-${index + 1}`;
-          const npmUrl = `https://www.npmjs.com/package/${pkg.name}`;
-          const repositoryUrl = pkg.resolved || `https://registry.npmjs.org/${pkg.name}/-/${pkg.name}-${pkg.version}.tgz`;
-          
-          const spdxPackage: any = {
-            SPDXID: packageSpdxId,
-            name: pkg.name,
-            version: pkg.version,
-            downloadLocation: repositoryUrl,
-            filesAnalyzed: false,
-            copyrightText: pkg.license ? `Copyright contributors to ${pkg.name}` : 'NOASSERTION',
-            supplier: `Organization: npm registry (https://www.npmjs.com)`,
-            originator: `Organization: ${pkg.name} contributors`,
-            homepage: npmUrl,
-            sourceInfo: `Downloaded from npm registry`,
-            externalRefs: [
-              {
-                referenceCategory: 'PACKAGE_MANAGER',
-                referenceType: 'purl',
-                referenceLocator: `pkg:npm/${pkg.name}@${pkg.version}`
-              },
-              {
-                referenceCategory: 'OTHER',
-                referenceType: 'website',
-                referenceLocator: npmUrl
-              }
-            ]
-          };
 
-          // 改善 license 處理
-          if (pkg.license) {
-            spdxPackage.licenseConcluded = pkg.license;
-            spdxPackage.licenseDeclared = pkg.license;
-          } else {
-            // 常見套件的預設 license 假設
-            const commonLicenses: Record<string, string> = {
-              'lodash': 'MIT',
-              'express': 'MIT',
-              'axios': 'MIT',
-              'react': 'MIT',
-              'vue': 'MIT',
-              'angular': 'MIT',
-              'typescript': 'Apache-2.0',
-              'jest': 'MIT'
-            };
-            const inferredLicense = commonLicenses[pkg.name] || 'NOASSERTION';
-            spdxPackage.licenseConcluded = inferredLicense;
-            spdxPackage.licenseDeclared = 'NOASSERTION';
-            if (inferredLicense !== 'NOASSERTION') {
-              spdxPackage.licenseComments = `License "${inferredLicense}" was inferred from known package metadata`;
-            }
-          }
-
-          return spdxPackage;
-        })
-      ],
-      relationships: [
-        {
-          spdxElementId: 'SPDXRef-DOCUMENT',
-          relatedSpdxElement: 'SPDXRef-Package-root',
-          relationshipType: 'DESCRIBES'
-        },
-        ...packages.map((_, index) => ({
-          spdxElementId: 'SPDXRef-Package-root',
-          relatedSpdxElement: `SPDXRef-Package-${index + 1}`,
-          relationshipType: 'DEPENDS_ON'
-        }))
-      ]
-    };
-
-    if (includeVulnerabilities) {
-      sbom.vulnerabilities = this.generateSpdxVulnerabilities(packages, scanResults);
-    }
-
-    return sbom;
-  }
-
-  /**
-   * 產生 CycloneDX 漏洞資訊
-   */
-  private generateCycloneDXVulnerabilities(
-    packages: PackageInfo[],
-    scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[]
-  ): any[] {
-    // 依 CVE ID 合併，避免重複條目
-    const vulnMap = new Map<string, any>();
-
-    scanResults.forEach(result => {
-      const pkg = packages.find(p => p.name === result.packageName ||
-        p.packageKey === result.packageName ||
-        `${p.name}@${p.version}` === result.packageName);
-
-      if (!pkg) return;
-
-      result.vulnerabilities.forEach(vuln => {
-        const existing = vulnMap.get(vuln.cveId);
-        const affectEntry = {
-          ref: this.generatePackageRef(pkg),
-          versions: [
-            {
-              version: pkg.version,
-              status: 'affected'
-            }
-          ]
-        };
-
-        if (existing) {
-          // 同一 CVE 影響多個套件時，合併 affects 陣列
-          const alreadyAffected = existing.affects.some(
-            (a: any) => a.ref === affectEntry.ref
-          );
-          if (!alreadyAffected) {
-            existing.affects.push(affectEntry);
-          }
-        } else {
-          vulnMap.set(vuln.cveId, {
-            id: vuln.cveId,
-            source: {
-              name: 'NVD',
-              url: `https://nvd.nist.gov/vuln/detail/${vuln.cveId}`
-            },
-            description: vuln.description,
-            published: vuln.publishedDate,
-            updated: vuln.lastModifiedDate,
-            ratings: [
-              {
-                source: {
-                  name: 'CVSS',
-                  url: 'https://www.first.org/cvss/'
-                },
-                score: vuln.cvssScore,
-                severity: vuln.severity.toLowerCase(),
-                method: 'CVSSv3',
-                vector: vuln.cvssVector || ''
-              }
-            ],
-            affects: [affectEntry],
-            references: vuln.references.map(ref => ({
-              id: ref,
-              source: {
-                url: ref
-              }
-            }))
-          });
-        }
-      });
-    });
-
-    return Array.from(vulnMap.values());
-  }
-
-  /**
-   * 產生 SPDX 漏洞資訊
-   */
-  private generateSpdxVulnerabilities(
-    packages: PackageInfo[],
-    scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[]
-  ): any[] {
-    // 依 CVE ID 合併，避免重複條目
-    const vulnMap = new Map<string, any>();
-
-    scanResults.forEach(result => {
-      const pkg = packages.find(p => p.name === result.packageName ||
-        p.packageKey === result.packageName ||
-        `${p.name}@${p.version}` === result.packageName);
-
-      if (!pkg) return;
-
-      result.vulnerabilities.forEach(vuln => {
-        const existing = vulnMap.get(vuln.cveId);
-        const affectEntry = {
-          spdxElementId: this.findPackageSpdxId(packages, pkg),
-          versionInfo: pkg.version
-        };
-
-        if (existing) {
-          // 同一 CVE 影響多個套件時，合併 affects 陣列
-          const alreadyAffected = existing.affects.some(
-            (a: any) => a.spdxElementId === affectEntry.spdxElementId
-          );
-          if (!alreadyAffected) {
-            existing.affects.push(affectEntry);
-          }
-        } else {
-          vulnMap.set(vuln.cveId, {
-            id: vuln.cveId,
-            description: vuln.description,
-            published: vuln.publishedDate,
-            modified: vuln.lastModifiedDate,
-            affects: [affectEntry],
-            properties: [
-              {
-                name: 'cvss:3.0:score',
-                value: vuln.cvssScore.toString()
-              },
-              {
-                name: 'cvss:3.0:severity',
-                value: vuln.severity
-              }
-            ],
-            externalReferences: [
-              {
-                type: 'advisory',
-                locator: `https://nvd.nist.gov/vuln/detail/${vuln.cveId}`
-              },
-              ...vuln.references.map(ref => ({
-                type: 'other',
-                locator: ref
-              }))
-            ]
-          });
-        }
-      });
-    });
-
-    return Array.from(vulnMap.values());
-  }
-
-  /**
-   * 產生套件參考識別符
-   */
-  private generatePackageRef(pkg: PackageInfo): string {
-    return `pkg:npm/${pkg.name}@${pkg.version}`;
-  }
-
-  /**
-   * 找到套件的 SPDX ID
-   */
-  private findPackageSpdxId(packages: PackageInfo[], targetPkg: PackageInfo): string {
-    const index = packages.findIndex(p => p.name === targetPkg.name && p.version === targetPkg.version);
-    return `SPDXRef-Package-${index + 1}`;
-  }
-
-  /**
-   * 對應套件類型到 CycloneDX scope
-   */
-  private mapPackageTypeToCycloneDXScope(type: 'dependency' | 'devDependency' | 'transitive'): string {
-    switch (type) {
-      case 'dependency': return 'required';
-      case 'devDependency': return 'optional';
-      case 'transitive': return 'required';
-      default: return 'required';
-    }
-  }
-
-  /**
-   * 產生 UUID
-   */
-  private generateUUID(): string {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-      const r = Math.random() * 16 | 0;
-      const v = c == 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
-  }
 
   /**
    * 產生 SBOM HTML 報告 (Trivy 風格)
@@ -1784,21 +1404,13 @@ export class ReportExportService {
       this.vexAnalysisService.analyzeVulnerabilities(scanResults, enhancedPackages) : 
       scanResults;
 
-    // 產生 SBOM
-    const sbom = this.generateEnhancedCycloneDXSbom(enhancedPackages, analyzedResults, scanTimestamp, includeVulnerabilities);
-    
-    // 驗證格式
-    const validationResult = this.sbomValidatorService.validateCycloneDX(sbom);
-    
-    // 添加驗證資訊到 metadata
-    sbom.metadata.validation = {
-      isValid: validationResult.isValid,
-      score: validationResult.score,
-      summary: this.sbomValidatorService.getValidationSummary(validationResult),
-      timestamp: new Date().toISOString()
-    };
+    // 產生 SBOM（官方庫序列化，格式由官方 schema 保證）
+    const json = this.cycloneDxSbomService.generateBomJson(enhancedPackages, analyzedResults, {
+      scanTimestamp,
+      includeVulnerabilities
+    });
 
-    const blob = new Blob([JSON.stringify(sbom, null, 2)], {
+    const blob = new Blob([json], {
       type: 'application/json;charset=utf-8'
     });
 
@@ -1818,27 +1430,13 @@ export class ReportExportService {
     // 增強套件的授權資訊
     const enhancedPackages = this.licenseAnalysisService.enhancePackagesWithLicenseInfo(packages, 'package-lock');
     
-    // 分析 VEX 狀態
-    const analyzedResults = includeVulnerabilities ? 
-      this.vexAnalysisService.analyzeVulnerabilities(scanResults, enhancedPackages) : 
-      scanResults;
-
-    // 產生 SBOM
-    const sbom = this.generateEnhancedSpdxSbom(enhancedPackages, analyzedResults, scanTimestamp, includeVulnerabilities);
-    
-    // 驗證格式
-    const validationResult = this.sbomValidatorService.validateSPDX(sbom);
-    
-    // 添加驗證資訊作為註解
-    sbom.annotations = sbom.annotations || [];
-    sbom.annotations.push({
-      annotationType: 'REVIEW',
-      annotator: 'Tool: SBOM Validator',
-      annotationDate: new Date().toISOString(),
-      annotationComment: `Validation: ${this.sbomValidatorService.getValidationSummary(validationResult)} (Score: ${validationResult.score}/100)`
+    // 產生 SBOM（含增強授權資訊；VEX 無法在 SPDX 2.3 表達，如需 VEX 請用 CycloneDX）
+    const json = this.spdxSbomService.generateSbomJson(enhancedPackages, scanResults, {
+      scanTimestamp,
+      includeVulnerabilities
     });
 
-    const blob = new Blob([JSON.stringify(sbom, null, 2)], {
+    const blob = new Blob([json], {
       type: 'application/json;charset=utf-8'
     });
 
@@ -1846,438 +1444,11 @@ export class ReportExportService {
     saveAs(blob, fileName);
   }
 
-  /**
-   * 產生增強版 CycloneDX SBOM
-   */
-  private generateEnhancedCycloneDXSbom(
-    packages: PackageInfo[],
-    scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[],
-    scanTimestamp?: Date,
-    includeVulnerabilities: boolean = false
-  ): any {
-    const timestamp = scanTimestamp || new Date();
-    
-    const sbom: any = {
-      bomFormat: 'CycloneDX',
-      specVersion: '1.4',
-      serialNumber: `urn:uuid:${this.generateUUID()}`,
-      version: 1,
-      metadata: {
-        timestamp: timestamp.toISOString(),
-        tools: [
-          {
-            vendor: 'CVE Scanner Enhanced',
-            name: 'cves-nist',
-            version: '1.1.0',
-            capabilities: ['VEX Analysis', 'Enhanced License Detection', 'Format Validation']
-          }
-        ],
-        component: {
-          type: 'application',
-          name: 'scanned-project',
-          version: '1.0.0'
-        },
-        licenses: this.generateLicenseSummary(packages)
-      },
-      components: packages.map(pkg => {
-        const component: any = {
-          type: 'library',
-          'bom-ref': this.generatePackageRef(pkg),
-          name: pkg.name,
-          version: pkg.version,
-          purl: `pkg:npm/${pkg.name}@${pkg.version}`,
-          scope: this.mapPackageTypeToCycloneDXScope(pkg.type),
-          supplier: {
-            name: 'npm registry',
-            url: ['https://www.npmjs.com']
-          },
-          externalReferences: [
-            {
-              type: 'website',
-              url: `https://www.npmjs.com/package/${pkg.name}`
-            },
-            {
-              type: 'distribution',
-              url: pkg.resolved || `https://registry.npmjs.org/${pkg.name}/-/${pkg.name}-${pkg.version}.tgz`
-            }
-          ]
-        };
 
-        if (pkg.description) {
-          component.description = pkg.description;
-        }
 
-        // 增強的授權處理
-        this.addEnhancedLicenseInfo(component, pkg);
 
-        // 添加完整性資訊
-        if (pkg.integrity) {
-          component.hashes = [
-            {
-              alg: 'SHA-512',
-              content: pkg.integrity.replace('sha512-', '')
-            }
-          ];
-        }
 
-        return component;
-      })
-    };
 
-    if (includeVulnerabilities) {
-      sbom.vulnerabilities = this.generateEnhancedCycloneDXVulnerabilities(packages, scanResults);
-    }
-
-    return sbom;
-  }
-
-  /**
-   * 產生增強版 SPDX SBOM
-   */
-  private generateEnhancedSpdxSbom(
-    packages: PackageInfo[],
-    scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[],
-    scanTimestamp?: Date,
-    includeVulnerabilities: boolean = false
-  ): any {
-    const timestamp = scanTimestamp || new Date();
-    const documentNamespace = `https://cve-scanner.local/spdx/${this.generateUUID()}`;
-    
-    const sbom: any = {
-      spdxVersion: 'SPDX-2.3',
-      dataLicense: 'CC0-1.0',
-      SPDXID: 'SPDXRef-DOCUMENT',
-      name: 'Enhanced CVE Scanner Report',
-      documentNamespace: documentNamespace,
-      creationInfo: {
-        created: timestamp.toISOString(),
-        creators: ['Tool: CVE Scanner Enhanced-1.1.0'],
-        licenseListVersion: '3.21'
-      },
-      packages: [
-        {
-          SPDXID: 'SPDXRef-Package-root',
-          name: 'scanned-project',
-          downloadLocation: 'NOASSERTION',
-          filesAnalyzed: false,
-          copyrightText: 'NOASSERTION',
-          licenseConcluded: 'NOASSERTION',
-          licenseDeclared: 'NOASSERTION'
-        },
-        ...packages.map((pkg, index) => {
-          const packageSpdxId = `SPDXRef-Package-${index + 1}`;
-          const npmUrl = `https://www.npmjs.com/package/${pkg.name}`;
-          const repositoryUrl = pkg.resolved || `https://registry.npmjs.org/${pkg.name}/-/${pkg.name}-${pkg.version}.tgz`;
-          
-          const spdxPackage: any = {
-            SPDXID: packageSpdxId,
-            name: pkg.name,
-            version: pkg.version,
-            downloadLocation: repositoryUrl,
-            filesAnalyzed: false,
-            copyrightText: pkg.licenseDeclared ? `Copyright contributors to ${pkg.name}` : 'NOASSERTION',
-            supplier: `Organization: npm registry (https://www.npmjs.com)`,
-            originator: `Organization: ${pkg.name} contributors`,
-            homepage: npmUrl,
-            sourceInfo: `Downloaded from npm registry`,
-            externalRefs: [
-              {
-                referenceCategory: 'PACKAGE_MANAGER',
-                referenceType: 'purl',
-                referenceLocator: `pkg:npm/${pkg.name}@${pkg.version}`
-              },
-              {
-                referenceCategory: 'OTHER',
-                referenceType: 'website',
-                referenceLocator: npmUrl
-              }
-            ]
-          };
-
-          // 增強的授權處理
-          spdxPackage.licenseConcluded = pkg.licenseConcluded || 'NOASSERTION';
-          spdxPackage.licenseDeclared = pkg.licenseDeclared || 'NOASSERTION';
-          
-          // 添加授權來源資訊
-          if (pkg.licenseSource) {
-            spdxPackage.licenseComments = `License source: ${pkg.licenseSource}`;
-          }
-
-          // 添加完整性檢查
-          if (pkg.integrity) {
-            spdxPackage.checksums = [
-              {
-                algorithm: 'SHA512',
-                value: pkg.integrity.replace('sha512-', '')
-              }
-            ];
-          }
-
-          return spdxPackage;
-        })
-      ],
-      relationships: [
-        {
-          spdxElementId: 'SPDXRef-DOCUMENT',
-          relatedSpdxElement: 'SPDXRef-Package-root',
-          relationshipType: 'DESCRIBES'
-        },
-        ...packages.map((_, index) => ({
-          spdxElementId: 'SPDXRef-Package-root',
-          relatedSpdxElement: `SPDXRef-Package-${index + 1}`,
-          relationshipType: 'DEPENDS_ON'
-        }))
-      ]
-    };
-
-    if (includeVulnerabilities) {
-      sbom.vulnerabilities = this.generateEnhancedSpdxVulnerabilities(packages, scanResults);
-    }
-
-    return sbom;
-  }
-
-  /**
-   * 添加增強的授權資訊到 CycloneDX 元件
-   */
-  private addEnhancedLicenseInfo(component: any, pkg: PackageInfo): void {
-    const licenses = [];
-
-    if (pkg.licenseDeclared) {
-      licenses.push({
-        license: {
-          id: pkg.licenseDeclared,
-          name: pkg.licenseDeclared
-        },
-        expression: pkg.licenseDeclared
-      });
-    }
-
-    if (pkg.licenseConcluded && pkg.licenseConcluded !== pkg.licenseDeclared) {
-      licenses.push({
-        license: {
-          id: pkg.licenseConcluded,
-          name: `${pkg.licenseConcluded} (concluded)`
-        },
-        expression: pkg.licenseConcluded
-      });
-    }
-
-    // 如果沒有授權資訊，使用原有邏輯
-    if (licenses.length === 0 && pkg.license) {
-      licenses.push({
-        license: {
-          id: pkg.license,
-          name: pkg.license
-        },
-        expression: pkg.license
-      });
-    }
-
-    if (licenses.length > 0) {
-      component.licenses = licenses;
-    }
-
-    // 添加授權來源資訊
-    if (pkg.licenseSource) {
-      component.properties = component.properties || [];
-      component.properties.push({
-        name: 'license:source',
-        value: pkg.licenseSource
-      });
-    }
-  }
-
-  /**
-   * 產生授權摘要
-   */
-  private generateLicenseSummary(packages: PackageInfo[]): any[] {
-    const licenseStats = this.licenseAnalysisService.getLicenseStatistics(packages);
-    const summary: any[] = [];
-
-    Object.entries(licenseStats.licenseBreakdown).forEach(([license, count]) => {
-      if (license !== 'Unknown' && count > 0) {
-        summary.push({
-          license: {
-            id: license,
-            name: license
-          },
-          usage: `${count} packages`
-        });
-      }
-    });
-
-    return summary;
-  }
-
-  /**
-   * 產生增強版 CycloneDX 漏洞資訊（包含 VEX 狀態）
-   */
-  private generateEnhancedCycloneDXVulnerabilities(
-    packages: PackageInfo[],
-    scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[]
-  ): any[] {
-    // 依 CVE ID 合併，避免重複條目
-    const vulnMap = new Map<string, any>();
-
-    scanResults.forEach(result => {
-      const pkg = packages.find(p => p.name === result.packageName ||
-        p.packageKey === result.packageName ||
-        `${p.name}@${p.version}` === result.packageName);
-
-      if (!pkg) return;
-
-      result.vulnerabilities.forEach(vuln => {
-        const existing = vulnMap.get(vuln.cveId);
-        const affectEntry: any = {
-          ref: this.generatePackageRef(pkg),
-          versions: [
-            {
-              version: pkg.version,
-              status: 'affected'
-            }
-          ]
-        };
-
-        // 將 VEX 分析放入 affectEntry，保留每個套件各自的狀態
-        if (vuln.vexStatus) {
-          affectEntry.analysis = {
-            state: vuln.vexStatus,
-            justification: vuln.vexJustification || undefined,
-            response: vuln.vexStatus === 'fixed' ? ['will_not_fix'] : undefined,
-            detail: vuln.vexJustification
-          };
-        }
-
-        if (existing) {
-          const alreadyAffected = existing.affects.some(
-            (a: any) => a.ref === affectEntry.ref
-          );
-          if (!alreadyAffected) {
-            existing.affects.push(affectEntry);
-          }
-        } else {
-          const vulnerability: any = {
-            id: vuln.cveId,
-            source: {
-              name: 'NVD',
-              url: `https://nvd.nist.gov/vuln/detail/${vuln.cveId}`
-            },
-            description: vuln.description,
-            published: vuln.publishedDate,
-            updated: vuln.lastModifiedDate,
-            ratings: [
-              {
-                source: {
-                  name: 'CVSS',
-                  url: 'https://www.first.org/cvss/'
-                },
-                score: vuln.cvssScore,
-                severity: vuln.severity.toLowerCase(),
-                method: 'CVSSv3',
-                vector: vuln.cvssVector || ''
-              }
-            ],
-            affects: [affectEntry],
-            references: vuln.references.map(ref => ({
-              id: ref,
-              source: {
-                url: ref
-              }
-            }))
-          };
-
-          vulnMap.set(vuln.cveId, vulnerability);
-        }
-      });
-    });
-
-    return Array.from(vulnMap.values());
-  }
-
-  /**
-   * 產生增強版 SPDX 漏洞資訊（包含 VEX 狀態）
-   */
-  private generateEnhancedSpdxVulnerabilities(
-    packages: PackageInfo[],
-    scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[]
-  ): any[] {
-    // 依 CVE ID 合併，避免重複條目
-    const vulnMap = new Map<string, any>();
-
-    scanResults.forEach(result => {
-      const pkg = packages.find(p => p.name === result.packageName ||
-        p.packageKey === result.packageName ||
-        `${p.name}@${p.version}` === result.packageName);
-
-      if (!pkg) return;
-
-      result.vulnerabilities.forEach(vuln => {
-        const existing = vulnMap.get(vuln.cveId);
-        const spdxId = this.findPackageSpdxId(packages, pkg);
-        const affectEntry = {
-          spdxElementId: spdxId,
-          versionInfo: pkg.version
-        };
-
-        if (existing) {
-          const alreadyAffected = existing.affects.some(
-            (a: any) => a.spdxElementId === affectEntry.spdxElementId
-          );
-          if (!alreadyAffected) {
-            existing.affects.push(affectEntry);
-            // 補上此套件的 per-package VEX 屬性
-            if (vuln.vexStatus) {
-              existing.properties.push({ name: `vex:status:${spdxId}`, value: vuln.vexStatus });
-              if (vuln.vexJustification) {
-                existing.properties.push({ name: `vex:justification:${spdxId}`, value: vuln.vexJustification });
-              }
-            }
-          }
-        } else {
-          const vulnerability: any = {
-            id: vuln.cveId,
-            description: vuln.description,
-            published: vuln.publishedDate,
-            modified: vuln.lastModifiedDate,
-            affects: [affectEntry],
-            properties: [
-              {
-                name: 'cvss:3.0:score',
-                value: vuln.cvssScore.toString()
-              },
-              {
-                name: 'cvss:3.0:severity',
-                value: vuln.severity
-              }
-            ],
-            externalReferences: [
-              {
-                type: 'advisory',
-                locator: `https://nvd.nist.gov/vuln/detail/${vuln.cveId}`
-              },
-              ...vuln.references.map(ref => ({
-                type: 'other',
-                locator: ref
-              }))
-            ]
-          };
-
-          // 添加 per-package VEX 屬性，以 spdxId 區分不同套件的狀態
-          if (vuln.vexStatus) {
-            vulnerability.properties.push({ name: `vex:status:${spdxId}`, value: vuln.vexStatus });
-            if (vuln.vexJustification) {
-              vulnerability.properties.push({ name: `vex:justification:${spdxId}`, value: vuln.vexJustification });
-            }
-          }
-
-          vulnMap.set(vuln.cveId, vulnerability);
-        }
-      });
-    });
-
-    return Array.from(vulnMap.values());
-  }
 
   /**
    * 匯出授權相容性報告

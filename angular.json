@@ -39,7 +39,9 @@
             ],
             "scripts": [],
             "allowedCommonJsDependencies": [
-              "file-saver"
+              "file-saver",
+              "@cyclonedx/cyclonedx-library",
+              "packageurl-js"
             ]
           },
           "configurations": {
