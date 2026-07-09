@@ -6,6 +6,7 @@ import {
   BatchProcessProgress,
   VersionRange
 } from '../interfaces/nvd-database.interface';
+import { parseNvdDate } from '../../shared/utils/date-utils';
 
 @Injectable({
   providedIn: 'root'
@@ -345,7 +346,7 @@ export class NvdParserService {
         
         // 版本管理欄位
         dataVersion: dataVersion || new Date().toISOString().split('T')[0],
-        publishedYear: new Date(publishedDate).getFullYear(),
+        publishedYear: parseNvdDate(publishedDate).getUTCFullYear(),
         syncTimestamp: Date.now()
       };
     } catch (error) {

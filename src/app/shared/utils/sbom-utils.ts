@@ -15,6 +15,22 @@ export function buildNpmPurl(pkgName: string, version: string): PackageURL {
 }
 
 /**
+ * 依漏洞編號決定 advisory 連結：CVE 連 NVD，其餘（GHSA/OSV 等）連 osv.dev
+ */
+export function getAdvisoryUrl(vulnId: string): string {
+  return vulnId.startsWith('CVE-')
+    ? `https://nvd.nist.gov/vuln/detail/${vulnId}`
+    : `https://osv.dev/vulnerability/${vulnId}`;
+}
+
+/**
+ * 依漏洞編號決定來源名稱：CVE 為 NVD，其餘為 OSV
+ */
+export function getAdvisorySourceName(vulnId: string): string {
+  return vulnId.startsWith('CVE-') ? 'NVD' : 'OSV';
+}
+
+/**
  * npm integrity 是 base64，SBOM hash/checksum 規定為 hex
  */
 export function base64ToHex(base64: string): string | null {

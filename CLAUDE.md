@@ -48,18 +48,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### 資料流程
 
-#### API 掃描流程
+> **來源優先序（重要）**：本工具掃描的是 npm 套件。OSV.dev 是 npm 原生、免費、免下載、涵蓋完整的來源，為**主要資料源**；NIST NVD（本地庫或遠端 API）以 CPE 建模，對 npm 比對準確率有限，僅作為**補充 / 離線後備**。合併時同一 CVE 保留 OSV 版本，NIST 僅補足 OSV 缺漏的描述性欄位（見 `VulnerabilityMergeService`）。
+
+#### OSV 掃描流程（主要，免下載）
 1. Upload Component: 上傳並驗證 package.json 檔案
 2. File Parser Service: 解析套件相依性清單
-3. Scan Component: 透過 NIST API 掃描漏洞
-4. Cache Service: 快取 API 回應以提升效能
+3. Scan Component: 本地庫未就緒且啟用 OSV 時，走 OSV-only 快速路徑
+4. OSV Api Service: 以 `/querybatch` 批次查詢 OSV.dev（一次最多 1000 筆）
 5. Report Component: 產生掃描報告並支援匯出
 
-#### 本地掃描流程
+#### 本地掃描流程（離線 / NIST 補充）
 1. Upload Component: 上傳並驗證 package.json 檔案
 2. File Parser Service: 解析套件相依性清單
 3. Scan Component: 檢查本地資料庫狀態
 4. Local Scan Service: 使用本地 IndexedDB 進行掃描
+5. Vulnerability Merge Service: 與 OSV 結果合併（OSV 優先）
+6. Report Component: 產生掃描報告並支援匯出
+
+#### API 掃描流程（最後手段）
+1. Upload Component: 上傳並驗證 package.json 檔案
+2. File Parser Service: 解析套件相依性清單
+3. Scan Component: 本地庫未就緒且未啟用 OSV 時，透過 NIST API 掃描（受節流：12 秒/套件、10 請求/分，每套件 2 請求，約 5 套件/分）
+4. Cache Service: 快取 API 回應以提升效能
 5. Report Component: 產生掃描報告並支援匯出
 
 #### 本地資料庫建置流程
@@ -73,8 +83,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `CacheService`: 實作 LRU 快取機制，預設 TTL 24小時，最大快取 1000 項目
 - `FileParserService`: 解析和驗證 package.json 檔案格式
 - `BackgroundScanService`: 管理背景掃描任務和狀態
-- `NistApiService`: 查詢遠端 NIST CVE 資料庫（API 掃描）
-- `LocalScanService`: 本地資料庫掃描服務（本地掃描）
+- `OsvApiService`: 查詢 OSV.dev（npm 原生、免費、主要來源），支援 `/querybatch` 批次查詢
+- `VulnerabilityMergeService`: 合併多來源結果，OSV 優先、NIST 補足缺漏欄位
+- `CycloneDxSbomService`: 以 OWASP 官方 `@cyclonedx/cyclonedx-library` 產生 CycloneDX 1.6 SBOM（官方 Serializer 保證 schema 合規）
+- `SpdxSbomService`: 產生 SPDX 2.3 SBOM；SPDX 無官方瀏覽器函式庫，故手刻結構並在測試中以官方 JSON schema（`core/schemas/spdx-2.3-schema.json`）+ ajv 驗證。漏洞以 SECURITY externalRef 表達；VEX 無法在 SPDX 2.3 表達，需 VEX 請用 CycloneDX
+- `NistApiService`: 查詢遠端 NIST CVE 資料庫（API 掃描，補充 / 最後手段）；本地庫未就緒且啟用 OSV 時改走 OSV-only 快速路徑
+- `LocalScanService`: 本地資料庫掃描服務（離線 / NIST 補充）
 - `NvdDatabaseService`: 本地 IndexedDB 資料庫管理
 - `DatabaseWorkerService`: Web Worker 處理資料庫密集操作
 - `NvdSyncService`: 管理 NVD 資料同步
@@ -98,10 +112,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `/database` - 本地資料庫管理頁面
 
 ### 掃描模式
-- **API 掃描**: 預設模式，透過 NIST API 查詢漏洞資訊
-- **本地掃描**: 使用本地 IndexedDB 資料庫，速度快且支援離線使用
-- **智慧切換**: 本地掃描失敗時自動切換為 API 掃描
+- **OSV 掃描**: 預設主要來源，免費、npm 原生、免下載本地庫，透過 OSV.dev 批次查詢，快速且涵蓋完整
+- **本地掃描**: 使用本地 IndexedDB 資料庫，適合離線使用或補充 NIST 資料；需先下載本地庫
+- **API 掃描**: 透過 NIST API 查詢，僅在關閉 OSV 且本地庫未就緒時使用（受速率節流，較慢）
+- **智慧切換**: 本地庫未就緒 → 啟用 OSV 走 OSV-only 快速路徑，否則回退 API；本地掃描失敗亦自動回退
 - **背景掃描**: 支援非阻塞掃描，可同時使用其他功能
+
+> 一般線上使用**不需要下載資料庫**；本地庫僅在離線或想以 NIST 補充非 npm 生態時才需要。
 
 ### 本地資料庫架構
 - **IndexedDB**: 使用瀏覽器 IndexedDB 儲存 NVD 資料庫副本

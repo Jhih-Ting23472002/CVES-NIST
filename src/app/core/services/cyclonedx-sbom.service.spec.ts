@@ -109,6 +109,42 @@ describe('CycloneDxSbomService', () => {
     expect(v.references ?? []).toEqual([]);
   });
 
+  it('CVE 編號的漏洞來源標為 NVD 並連到 nvd.nist.gov', () => {
+    const sbom = generate(true);
+    const v = sbom.vulnerabilities[0];
+    expect(v.source.name).toBe('NVD');
+    expect(v.source.url).toBe('https://nvd.nist.gov/vuln/detail/CVE-2021-23337');
+  });
+
+  it('GHSA/OSV 編號的漏洞來源標為 OSV 並連到 osv.dev', () => {
+    const ghsaVuln: Vulnerability = { ...vuln, cveId: 'GHSA-35jh-r3h4-6jhm' };
+    const sbom = JSON.parse(service.generateBomJson(
+      packages,
+      [{ packageName: 'lodash', vulnerabilities: [ghsaVuln] }],
+      { includeVulnerabilities: true }
+    ));
+    const v = sbom.vulnerabilities[0];
+    expect(v.source.name).toBe('OSV');
+    expect(v.source.url).toBe('https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm');
+  });
+
+  it('無時區的 NVD 日期字串視為 UTC，不受本地時區影響', () => {
+    // NVD API 回傳的日期沒有時區資訊（如 2023-10-25T21:15:10.307）
+    const nvdVuln: Vulnerability = {
+      ...vuln,
+      publishedDate: '2023-10-25T21:15:10.307',
+      lastModifiedDate: '2024-11-21T08:28:07.867'
+    };
+    const sbom = JSON.parse(service.generateBomJson(
+      packages,
+      [{ packageName: 'lodash', vulnerabilities: [nvdVuln] }],
+      { includeVulnerabilities: true }
+    ));
+    const v = sbom.vulnerabilities[0];
+    expect(v.published).toBe('2023-10-25T21:15:10.307Z');
+    expect(v.updated).toBe('2024-11-21T08:28:07.867Z');
+  });
+
   it('VEX 狀態對應到 analysis.state', () => {
     const vexVuln: Vulnerability = { ...vuln, vexStatus: 'not_affected', vexJustification: 'dev only' };
     const json = JSON.parse(service.generateBomJson(

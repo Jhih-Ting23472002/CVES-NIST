@@ -61,7 +61,9 @@ export class BackgroundScanService {
     sourceFileName: string = ''
   ): string {
     const taskId = this.generateTaskId();
-    const estimatedTime = this.fileParserService.estimateScanTime(packages);
+    const estimatedTime = this.fileParserService.estimateScanTime(packages, {
+      useOsvSource: config.useOsvSource ?? true
+    });
 
     // 自動計算 order：取所有活動任務中最大 order + 1
     const maxOrder = this.state.activeTasks.reduce((max, t) => Math.max(max, t.order || 0), 0);
@@ -391,9 +393,22 @@ export class BackgroundScanService {
       .subscribe({
         next: (response) => {
           if (response.type === 'result') {
-            // 掃描完成，intermediateResults 已透過 packageResult 事件即時累積所有結果
-            // 不再合併 response.results 以避免重複
+            // intermediateResults 由 packageResult 事件累積，但那是「未經 OSV 合併」的逐筆結果；
+            // 最終 result 事件的 results 才帶有 OSV 合併資料（僅涵蓋本次掃描的套件）。
+            // 以 packageName 覆蓋同名項目，既保留 OSV 資料、也不影響先前續掃已保存的結果。
             const finalResults = [...(task.intermediateResults || [])];
+            if (response.results?.length) {
+              const mergedByName = new Map(response.results.map(r => [r.packageName, r]));
+              for (let i = 0; i < finalResults.length; i++) {
+                const merged = mergedByName.get(finalResults[i].packageName);
+                if (merged) {
+                  finalResults[i] = merged;
+                  mergedByName.delete(merged.packageName);
+                }
+              }
+              // 防禦性補上：result 有但 packageResult 未回報過的套件
+              mergedByName.forEach(r => finalResults.push(r));
+            }
             task.status = 'completed';
             task.results = finalResults;
             task.completedAt = new Date();

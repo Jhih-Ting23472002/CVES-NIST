@@ -619,17 +619,38 @@ export class FileParserService implements IFileParserService {
   }
 
   // 估算掃描時間
-  estimateScanTime(packages: PackageInfo[]): {
+  estimateScanTime(
+    packages: PackageInfo[],
+    options?: { useLocalScan?: boolean; useOsvSource?: boolean }
+  ): {
     estimatedMinutes: number;
     description: string;
   } {
     const count = packages.length;
-    // NIST API 每個套件間隔 12 秒 + API 回應時間，再加上版本推薦 5 秒
-    const mainScanTimePerPackage = 12; // 秒，對應 NIST API 的 REQUEST_DELAY
-    const versionRecommendationTime = 5; // 秒，版本推薦服務的延遲
-    const avgTimePerPackage = mainScanTimePerPackage + versionRecommendationTime; // 總共 17 秒/套件
-    const totalSeconds = count * avgTimePerPackage;
-    const minutes = Math.ceil(totalSeconds / 60);
+    // 預設反映實際主流程：OSV 為主要來源、免下載本地庫
+    const useLocal = options?.useLocalScan ?? false;
+    const useOsv = options?.useOsvSource ?? true;
+
+    let totalSeconds: number;
+    let calcNote: string;
+
+    if (useLocal) {
+      // 本地 IndexedDB 掃描，約 1 秒/套件；OSV 補充為平行查詢，不額外累加
+      totalSeconds = count * 1;
+      calcNote = `本地掃描：約 ${count} 個套件 × 1 秒`;
+    } else if (useOsv) {
+      // OSV 批次查詢：/querybatch 每批最多 1000 筆，約 5 秒/批
+      const batches = Math.max(1, Math.ceil(count / 1000));
+      totalSeconds = batches * 5;
+      calcNote = `OSV 批次掃描：${batches} 批 × 5 秒`;
+    } else {
+      // NIST API 逐筆查詢，受節流 12 秒/筆 + 版本推薦 5 秒
+      const avgTimePerPackage = 17;
+      totalSeconds = count * avgTimePerPackage;
+      calcNote = `API 掃描：約 ${count} 個套件 × ${avgTimePerPackage} 秒`;
+    }
+
+    const minutes = Math.max(1, Math.ceil(totalSeconds / 60));
 
     let description = '';
     if (minutes <= 3) {
@@ -646,7 +667,7 @@ export class FileParserService implements IFileParserService {
 
     return {
       estimatedMinutes: minutes,
-      description: `${description} (約 ${count} 個套件 × ${avgTimePerPackage} 秒 = ${minutes} 分鐘)`
+      description: `${description} (${calcNote} = ${minutes} 分鐘)`
     };
   }
 }

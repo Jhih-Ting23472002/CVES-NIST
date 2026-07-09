@@ -30,7 +30,8 @@ import { VersionRecommendationService } from '../../core/services/version-recomm
 import {
   getUniqueTotalVulnerabilities,
   getUniqueSeverityCount,
-  getTotalAffectedCombinations
+  getTotalAffectedCombinations,
+  detectDataSources
 } from '../../shared/utils/vulnerability-count-utils';
 
 @Component({
@@ -323,10 +324,6 @@ export class ReportComponent implements OnInit {
     this.reportExportService.exportAsCsv(this.packages, this.scanResults, this.scanTimestamp);
   }
 
-  exportAsHtml(): void {
-    this.reportExportService.exportAsHtml(this.packages, this.scanResults, this.scanTimestamp);
-  }
-
   exportAsCycloneDX(includeVulnerabilities: boolean = false): void {
     this.reportExportService.exportAsCycloneDX(this.packages, this.scanResults, this.scanTimestamp, includeVulnerabilities);
   }
@@ -513,13 +510,11 @@ export class ReportComponent implements OnInit {
    * 取得資料來源標籤（用於報告頭部顯示）
    */
   getDataSourceLabel(): string {
-    const allVulns = this.scanResults.flatMap(r => r.vulnerabilities);
-    const hasOsv = allVulns.some(v => v.dataSource === 'osv' || v.dataSource === 'hybrid');
-    const hasNist = allVulns.some(v => !v.dataSource || v.dataSource === 'nist' || v.dataSource === 'hybrid');
-
-    if (hasNist && hasOsv) return 'NIST NVD + OSV.dev';
-    if (hasOsv) return 'OSV.dev';
-    return 'NIST NVD';
+    const { hasOsv, hasNist } = detectDataSources(this.scanResults);
+    if (hasOsv && !hasNist) return 'OSV.dev';
+    if (hasNist && !hasOsv) return 'NIST NVD';
+    // 兩者皆有，或零漏洞無從判斷時列出雙來源
+    return 'NIST NVD + OSV.dev';
   }
 
   /**

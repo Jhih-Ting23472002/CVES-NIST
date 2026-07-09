@@ -42,27 +42,28 @@
         </div>
         
         <div class="local-scan-warning" *ngIf="!isLocalDatabaseReady">
-          <mat-icon class="warning-icon">warning</mat-icon>
-          <span>本地資料庫尚未準備就緒，將使用 API 掃描。</span>
+          <mat-icon class="warning-icon">info</mat-icon>
+          <span *ngIf="useOsvSource">本地資料庫未就緒，將使用 OSV.dev 線上掃描（免下載、快速）。</span>
+          <span *ngIf="!useOsvSource">本地資料庫未就緒且未啟用 OSV，將使用較慢的 NIST API 掃描。</span>
           <a routerLink="/database" class="database-link">前往資料庫管理</a>
         </div>
         
-        <!-- OSV 補充資料來源選項 -->
+        <!-- OSV 主要資料來源選項 -->
         <div class="osv-scan-option">
           <mat-slide-toggle
             [(ngModel)]="useOsvSource"
             [disabled]="isScanning">
-            啟用 OSV.dev 補充資料
+            使用 OSV.dev（主要來源）
           </mat-slide-toggle>
           <mat-icon
             [matTooltip]="useLocalScan
-              ? 'OSV.dev 可補充本地 NVD 資料庫的漏報（如 GHSA 條目）。需要網路連線，不影響離線的本地掃描速度。'
-              : 'OSV.dev 提供額外的開源漏洞資料，可降低漏報率。免費、無需 API 金鑰。'"
+              ? 'OSV.dev 為 npm 原生主要來源，比對準確；本地 NVD 僅補足描述性欄位。需要網路連線，不影響離線的本地掃描速度。'
+              : 'OSV.dev 為 npm 原生主要來源，免費、免 API 金鑰、免下載資料庫。關閉後若本地庫也未就緒，將改用較慢的 NIST API。'"
             class="info-icon">
             info
           </mat-icon>
-          <span class="scan-type-badge osv" *ngIf="useOsvSource">+ OSV</span>
-          <span class="scan-type-badge local" *ngIf="useOsvSource && useLocalScan" style="margin-left:0">需網路</span>
+          <span class="scan-type-badge osv" *ngIf="useOsvSource">OSV 主源</span>
+          <span class="scan-type-badge local" *ngIf="useOsvSource" style="margin-left:0">需網路</span>
         </div>
 
         <div class="background-scan-option">
@@ -76,7 +77,8 @@
             class="info-icon">
             info
           </mat-icon>
-          <span class="scan-type-badge api" *ngIf="!useLocalScan">API 掃描</span>
+          <span class="scan-type-badge osv" *ngIf="!useLocalScan && useOsvSource">OSV 掃描</span>
+          <span class="scan-type-badge api" *ngIf="!useLocalScan && !useOsvSource">API 掃描</span>
         </div>
         
         <div class="scan-config" *ngIf="useBackgroundScan">
@@ -92,7 +94,7 @@
             掃描模式：{{ getScanConfigDescription() }}
           </p>
           <p class="time-estimate">
-            預估時間：約 {{ fileParserService.estimateScanTime(packages).estimatedMinutes }} 分鐘
+            預估時間：約 {{ fileParserService.estimateScanTime(packages, { useLocalScan: useLocalScan && isLocalDatabaseReady, useOsvSource: useOsvSource }).estimatedMinutes }} 分鐘
           </p>
         </div>
       </div>

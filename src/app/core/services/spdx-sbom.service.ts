@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import * as CDX from '@cyclonedx/cyclonedx-library';
 import { PackageInfo, Vulnerability } from '../models/vulnerability.model';
-import { buildNpmPurl, base64ToHex } from '../../shared/utils/sbom-utils';
+import { buildNpmPurl, base64ToHex, getAdvisoryUrl } from '../../shared/utils/sbom-utils';
 
 export interface SpdxOptions {
   scanTimestamp?: Date;
@@ -103,7 +103,7 @@ export class SpdxSbomService {
         ...cveIds.map(cveId => ({
           referenceCategory: 'SECURITY',
           referenceType: 'advisory',
-          referenceLocator: `https://nvd.nist.gov/vuln/detail/${cveId}`
+          referenceLocator: getAdvisoryUrl(cveId)
         }))
       ]
     };

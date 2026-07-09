@@ -61,8 +61,8 @@ import { getDatabaseConfig } from '../../core/config/database.config';
             <div class="info-item">
               <mat-icon>download</mat-icon>
               <div class="info-content">
-                <h4>初始同步</h4>
-                <p>首次使用需下載近{{getDatabaseConfigYears()}}年 NVD 資料，建立本地漏洞資料庫</p>
+                <h4>初始同步（選用）</h4>
+                <p>一般線上掃描預設使用 OSV，<strong>不需下載</strong>。僅離線使用或想以 NIST 補充時，才下載近{{getDatabaseConfigYears()}}年 NVD 資料建立本地庫</p>
               </div>
             </div>
             <div class="info-item">
@@ -78,6 +78,18 @@ import { getDatabaseConfig } from '../../core/config/database.config';
                 <h4>快速掃描</h4>
                 <p>本地掃描速度比 API 快 10-20 倍，支援離線使用</p>
               </div>
+            </div>
+          </div>
+          <div class="coverage-notice">
+            <mat-icon>info</mat-icon>
+            <div>
+              <strong>涵蓋範圍說明</strong>
+              <p>
+                本地資料庫僅涵蓋<strong>近 {{getDatabaseConfigYears()}} 年「公布」的 CVE</strong>（依 NVD 年度檔切分，非套件版本年份），
+                較舊年份公布但仍影響現用套件的漏洞不會出現在本地掃描中。
+                此外 NVD 以 CPE 建模，對 npm 套件比對準確率有限。
+                建議搭配 OSV 來源掃描（npm 原生、涵蓋完整），以本地庫作為離線後備。
+              </p>
             </div>
           </div>
           <div class="info-actions">
@@ -325,6 +337,21 @@ import { getDatabaseConfig } from '../../core/config/database.config';
         padding-top: 16px;
         border-top: 1px solid rgba(0, 0, 0, 0.1);
       }
+    }
+
+    .coverage-notice {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      margin-top: 16px;
+      padding: 12px 16px;
+      background: #fff8e1;
+      border: 1px solid #ffe082;
+      border-radius: 8px;
+
+      mat-icon { color: #f9a825; flex-shrink: 0; }
+      strong { display: block; margin-bottom: 4px; color: #795548; }
+      p { margin: 0; font-size: 13px; line-height: 1.6; color: #5d4037; }
     }
 
     .stats-grid {

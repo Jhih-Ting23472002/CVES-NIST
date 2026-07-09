@@ -1,7 +1,8 @@
 import { Injectable } from '@angular/core';
 import * as CDX from '@cyclonedx/cyclonedx-library';
 import { PackageInfo, Vulnerability, VexStatus } from '../models/vulnerability.model';
-import { buildNpmPurl, base64ToHex } from '../../shared/utils/sbom-utils';
+import { buildNpmPurl, base64ToHex, getAdvisoryUrl, getAdvisorySourceName } from '../../shared/utils/sbom-utils';
+import { parseNvdDate } from '../../shared/utils/date-utils';
 
 export interface CycloneDxOptions {
   scanTimestamp?: Date;
@@ -165,16 +166,16 @@ export class CycloneDxSbomService {
       id: vuln.cveId,
       description: vuln.description,
       source: new CDX.Models.Vulnerability.Source({
-        name: 'NVD',
-        url: `https://nvd.nist.gov/vuln/detail/${vuln.cveId}`
+        name: getAdvisorySourceName(vuln.cveId),
+        url: getAdvisoryUrl(vuln.cveId)
       })
     });
 
     if (vuln.publishedDate) {
-      cdxVuln.published = new Date(vuln.publishedDate);
+      cdxVuln.published = parseNvdDate(vuln.publishedDate);
     }
     if (vuln.lastModifiedDate) {
-      cdxVuln.updated = new Date(vuln.lastModifiedDate);
+      cdxVuln.updated = parseNvdDate(vuln.lastModifiedDate);
     }
 
     cdxVuln.ratings.add(new CDX.Models.Vulnerability.Rating({

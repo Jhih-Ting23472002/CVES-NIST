@@ -190,9 +190,12 @@ export class NistApiService implements OnDestroy {
    * 批次搜尋多個套件的漏洞，支援進度回報（自動選擇本地或 API 掃描）
    */
   searchMultiplePackagesWithProgress(packages: PackageInfo[]): Observable<{
-    type: 'progress' | 'result' | 'error',
+    // packageResult 事件僅在 OSV-only 路徑發出，前景掃描可忽略
+    type: 'progress' | 'result' | 'error' | 'packageResult',
     progress?: { current: number, total: number, currentPackage: string },
     results?: {packageName: string, vulnerabilities: Vulnerability[]}[],
+    packageResult?: {packageName: string, vulnerabilities: Vulnerability[]},
+    packageIndex?: number,
     error?: string
   }> {
     // 在掃描開始時擷取設定快照，避免掃描中途使用者切換 toggle 造成行為不一致
@@ -233,6 +236,14 @@ export class NistApiService implements OnDestroy {
             }),
             catchError(localError => {
               console.warn('本地批次掃描失敗，回退到 API 掃描:', localError);
+              return this.performApiBatchScan(packages);
+            })
+          );
+        } else if (useOsv) {
+          console.log('本地資料庫未就緒，使用 OSV-only 快速掃描（免下載）');
+          return this.performOsvOnlyBatchScan(packages).pipe(
+            catchError(osvError => {
+              console.warn('[OSV] OSV-only 掃描失敗，回退到 API 掃描:', osvError?.message);
               return this.performApiBatchScan(packages);
             })
           );
@@ -300,12 +311,69 @@ export class NistApiService implements OnDestroy {
               return this.performApiBatchScanResumable(packages, startFromIndex, totalPackagesCount);
             })
           );
+        } else if (useOsv) {
+          console.log('本地資料庫未就緒，使用 OSV-only 快速掃描（免下載）');
+          return this.performOsvOnlyBatchScan(packages).pipe(
+            catchError(osvError => {
+              console.warn('[OSV] OSV-only 掃描失敗，回退到 API 批次掃描:', osvError?.message);
+              return this.performApiBatchScanResumable(packages, startFromIndex, totalPackagesCount);
+            })
+          );
         } else {
           console.log(`本地資料庫未就緒，使用 API 批次掃描，從索引 ${startFromIndex} 開始`);
           return this.performApiBatchScanResumable(packages, startFromIndex, totalPackagesCount);
         }
       })
     );
+  }
+
+  /**
+   * 執行 OSV-only 快速批次掃描
+   *
+   * 本地資料庫未就緒且啟用 OSV 時使用：直接以 OSV.dev 批次查詢，跳過受節流的 NIST API。
+   * OSV 為 npm 原生來源、免費且免下載本地庫，即可快速取得完整結果。
+   *
+   * 契約：逐筆發出 packageResult（背景掃描以此累積結果與斷點索引），最後發出 result。
+   * OSV 查詢失敗時以 observer.error 傳播，由呼叫端回退到 API 掃描。
+   */
+  private performOsvOnlyBatchScan(packages: PackageInfo[]): Observable<{
+    type: 'progress' | 'result' | 'error' | 'packageResult',
+    progress?: { current: number, total: number, currentPackage: string },
+    results?: {packageName: string, vulnerabilities: Vulnerability[]}[],
+    packageResult?: {packageName: string, vulnerabilities: Vulnerability[]},
+    packageIndex?: number,
+    error?: string
+  }> {
+    return new Observable(observer => {
+      observer.next({
+        type: 'progress',
+        progress: { current: 0, total: packages.length, currentPackage: '正在查詢 OSV.dev...' }
+      });
+
+      const subscription = this.osvApiService.searchBatch(packages, { propagateErrors: true }).subscribe({
+        next: osvResultMap => {
+          const results = packages.map((pkg, index) => {
+            const key = pkg.packageKey || `${pkg.name}@${pkg.version}`;
+            const vulnerabilities = (osvResultMap.get(key) || []).map(v => ({
+              ...v,
+              dataSource: v.dataSource || 'osv' as const
+            }));
+            const packageResult = { packageName: key, vulnerabilities };
+            observer.next({ type: 'packageResult', packageResult, packageIndex: index });
+            return packageResult;
+          });
+          observer.next({
+            type: 'progress',
+            progress: { current: packages.length, total: packages.length, currentPackage: 'OSV 查詢完成' }
+          });
+          observer.next({ type: 'result', results });
+          observer.complete();
+        },
+        error: (error) => observer.error(error)
+      });
+
+      return () => subscription.unsubscribe();
+    });
   }
 
   /**

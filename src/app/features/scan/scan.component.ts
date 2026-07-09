@@ -79,7 +79,7 @@ export class ScanComponent implements OnInit, OnDestroy {
   // 來源檔案名稱
   sourceFileName = '';
 
-  // OSV 補充來源
+  // OSV 主要來源（npm 原生、免下載，預設開啟）
   useOsvSource = true;
 
   // 本地掃描相關
@@ -338,7 +338,9 @@ export class ScanComponent implements OnInit, OnDestroy {
       const failedCount = response.results.filter((r: any) => r.vulnerabilities.length === 0).length;
       
       let message = '';
-      const scanType = this.useLocalScan && this.isLocalDatabaseReady ? '本地掃描' : 'API 掃描';
+      const scanType = this.useLocalScan && this.isLocalDatabaseReady
+        ? '本地掃描'
+        : (this.useOsvSource ? 'OSV 掃描' : 'API 掃描');
       if (totalVulnerabilities > 0) {
         message = `${scanType}完成！在 ${vulnerableCount} 個套件中發現 ${totalVulnerabilities} 個漏洞`;
         if (failedCount > 0) {
@@ -403,13 +405,8 @@ export class ScanComponent implements OnInit, OnDestroy {
         this.hideLoadingOverlay();
         
         if (isReady) {
-          // 預設使用本地掃描（如果可用）
-          this.useLocalScan = true;
-          console.log('本地資料庫可用，預設啟用本地掃描');
-          this.snackBar.open('本地資料庫準備就緒，已啟用本地掃描模式', '確定', {
-            duration: 3000,
-            panelClass: ['success-snackbar']
-          });
+          // 本地庫可用但不預設開啟：OSV 為主要來源，本地掃描由使用者自行啟用
+          console.log('本地資料庫可用，可手動啟用本地掃描');
         } else {
           this.useLocalScan = false;
           console.log('本地資料庫不可用，將使用 API 掃描');

@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, of, forkJoin } from 'rxjs';
+import { Observable, of, forkJoin, throwError } from 'rxjs';
 import { map, catchError, tap } from 'rxjs/operators';
 import {
   OsvQueryRequest,
@@ -87,7 +87,10 @@ export class OsvApiService implements IVulnerabilityProvider {
   /**
    * 批次查詢多個套件的漏洞
    */
-  searchBatch(packages: PackageInfo[]): Observable<Map<string, Vulnerability[]>> {
+  searchBatch(
+    packages: PackageInfo[],
+    options?: { propagateErrors?: boolean }
+  ): Observable<Map<string, Vulnerability[]>> {
     if (packages.length === 0) {
       return of(new Map());
     }
@@ -127,7 +130,11 @@ export class OsvApiService implements IVulnerabilityProvider {
       }),
       catchError(error => {
         console.warn('[OSV] 批次查詢失敗:', error.message);
-        return of(resultMap); // 返回已有的快取結果
+        if (options?.propagateErrors) {
+          // OSV-only 掃描需要區分「查詢失敗」與「沒有漏洞」，以便回退到 API 掃描
+          return throwError(() => error);
+        }
+        return of(resultMap); // 補充查詢：返回已有的快取結果，靜默降級
       })
     );
   }

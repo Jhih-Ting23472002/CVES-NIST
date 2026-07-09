@@ -4,12 +4,12 @@ import { PackageInfo, Vulnerability } from '../models/vulnerability.model';
 import {
   getUniqueTotalVulnerabilities,
   getUniqueSeverityBreakdown,
-  getTotalAffectedCombinations
+  getTotalAffectedCombinations,
+  detectDataSources
 } from '../../shared/utils/vulnerability-count-utils';
-import { VexAnalysisService } from './vex-analysis.service';
-import { LicenseAnalysisService } from './license-analysis.service';
 import { CycloneDxSbomService } from './cyclonedx-sbom.service';
 import { SpdxSbomService } from './spdx-sbom.service';
+import { getAdvisoryUrl } from '../../shared/utils/sbom-utils';
 
 @Injectable({
   providedIn: 'root'
@@ -17,8 +17,6 @@ import { SpdxSbomService } from './spdx-sbom.service';
 export class ReportExportService {
 
   constructor(
-    private vexAnalysisService: VexAnalysisService,
-    private licenseAnalysisService: LicenseAnalysisService,
     private cycloneDxSbomService: CycloneDxSbomService,
     private spdxSbomService: SpdxSbomService
   ) { }
@@ -143,24 +141,6 @@ export class ReportExportService {
   }
 
   /**
-   * 匯出 HTML 格式報告
-   */
-  exportAsHtml(
-    packages: PackageInfo[],
-    scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[],
-    scanTimestamp?: Date
-  ): void {
-    const html = this.generateHtmlReport(packages, scanResults, scanTimestamp);
-
-    const blob = new Blob([html], {
-      type: 'text/html;charset=utf-8'
-    });
-
-    const fileName = `security-scan-report-${this.formatDate(new Date())}.html`;
-    saveAs(blob, fileName);
-  }
-
-  /**
    * 匯出 CycloneDX SBOM 格式
    */
   exportAsCycloneDX(
@@ -223,284 +203,6 @@ export class ReportExportService {
     saveAs(blob, fileName);
   }
 
-  /**
-   * 產生 HTML 報告
-   */
-  private generateHtmlReport(
-    packages: PackageInfo[],
-    scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[],
-    scanTimestamp?: Date
-  ): string {
-    const severityBreakdown = this.getSeverityBreakdown(scanResults);
-    const totalVulns = this.getTotalVulnerabilities(scanResults);
-
-    return `
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>安全掃描報告</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            border-radius: 10px;
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        .summary {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        .stat-card {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            text-align: center;
-        }
-        .stat-number {
-            font-size: 2.5rem;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }
-        .critical { color: #d32f2f; }
-        .high { color: #f57c00; }
-        .medium { color: #e65100; }
-        .low { color: #388e3c; }
-        .safe { color: #1976d2; }
-
-        .section {
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
-        }
-        .section h2 {
-            color: #333;
-            border-bottom: 3px solid #667eea;
-            padding-bottom: 10px;
-        }
-        .vulnerability {
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-            background: #fafafa;
-        }
-        .vulnerability h3 {
-            margin-top: 0;
-            color: #333;
-        }
-        .severity-badge {
-            display: inline-block;
-            padding: 5px 10px;
-            border-radius: 20px;
-            color: white;
-            font-weight: bold;
-            font-size: 0.8rem;
-        }
-        .severity-critical { background-color: #d32f2f; }
-        .severity-high { background-color: #f57c00; }
-        .severity-medium { background-color: #e65100; }
-        .severity-low { background-color: #388e3c; }
-        .package-safe {
-            background: #e8f5e8;
-            border-left: 4px solid #4caf50;
-            padding: 15px;
-            margin-bottom: 10px;
-            border-radius: 5px;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        th, td {
-            text-align: left;
-            padding: 12px;
-            border-bottom: 1px solid #ddd;
-        }
-        th {
-            background-color: #f8f9fa;
-            font-weight: bold;
-        }
-        
-        /* Trivy 風格表格 */
-        .vulnerability-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-            font-family: 'Courier New', monospace;
-            font-size: 14px;
-            background: white;
-            border: 2px solid #333;
-        }
-        
-        .vulnerability-table th {
-            background-color: #f8f9fa;
-            border: 1px solid #333;
-            padding: 10px 8px;
-            text-align: center;
-            font-weight: bold;
-            font-size: 13px;
-        }
-        
-        .vulnerability-table td {
-            border: 1px solid #333;
-            padding: 8px;
-            vertical-align: top;
-            font-size: 12px;
-        }
-        
-        .vulnerability-table .library-cell {
-            font-weight: bold;
-            max-width: 150px;
-            word-wrap: break-word;
-        }
-        
-        .vulnerability-table .vulnerability-cell {
-            max-width: 120px;
-            word-wrap: break-word;
-        }
-        
-        .vulnerability-table .severity-cell {
-            text-align: center;
-            font-weight: bold;
-            width: 80px;
-        }
-        
-        .vulnerability-table .version-cell {
-            max-width: 100px;
-            word-wrap: break-word;
-            text-align: center;
-        }
-        
-        .vulnerability-table .title-cell {
-            max-width: 300px;
-            word-wrap: break-word;
-        }
-        
-        .vulnerability-table .title-cell a {
-            color: #0066cc;
-            text-decoration: none;
-        }
-        
-        .vulnerability-table .title-cell a:hover {
-            text-decoration: underline;
-        }
-        
-        .trivy-summary {
-            font-family: 'Courier New', monospace;
-            background: #f8f9fa;
-            padding: 15px;
-            border-left: 4px solid #007acc;
-            margin: 20px 0;
-            font-size: 14px;
-            font-weight: bold;
-        }
-        .footer {
-            text-align: center;
-            margin-top: 50px;
-            padding: 20px;
-            color: #666;
-            border-top: 1px solid #ddd;
-        }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>安全掃描報告</h1>
-        ${scanTimestamp ? `<p>掃描時間: ${scanTimestamp.toLocaleString('zh-TW')}</p>` : ''}
-        <p>匯出時間: ${new Date().toLocaleString('zh-TW')}</p>
-        <p>掃描了 ${packages.length} 個套件，發現 ${totalVulns} 個漏洞</p>
-    </div>
-
-    <div class="summary">
-        ${severityBreakdown.critical > 0 ? `
-        <div class="stat-card">
-            <div class="stat-number critical">${severityBreakdown.critical}</div>
-            <div>嚴重漏洞</div>
-        </div>` : ''}
-        ${severityBreakdown.high > 0 ? `
-        <div class="stat-card">
-            <div class="stat-number high">${severityBreakdown.high}</div>
-            <div>高風險漏洞</div>
-        </div>` : ''}
-        ${severityBreakdown.medium > 0 ? `
-        <div class="stat-card">
-            <div class="stat-number medium">${severityBreakdown.medium}</div>
-            <div>中風險漏洞</div>
-        </div>` : ''}
-        ${severityBreakdown.low > 0 ? `
-        <div class="stat-card">
-            <div class="stat-number low">${severityBreakdown.low}</div>
-            <div>低風險漏洞</div>
-        </div>` : ''}
-        <div class="stat-card">
-            <div class="stat-number safe">${severityBreakdown.safe}</div>
-            <div>安全套件</div>
-        </div>
-    </div>
-
-    <div class="section">
-        <h2>套件掃描結果</h2>
-        ${scanResults.map(result => {
-          const packageInfo = packages.find(p => p.name === result.packageName);
-
-          if (result.vulnerabilities.length === 0) {
-            return `
-            <div class="package-safe">
-                <strong>${result.packageName}</strong> (${packageInfo?.version || 'unknown'})
-                - <span style="color: #4caf50;">✓ 安全</span>
-            </div>`;
-          } else {
-            return `
-            <div class="vulnerability">
-                <h3>${result.packageName} (${packageInfo?.version || 'unknown'})</h3>
-                ${result.vulnerabilities.map(vuln => `
-                <div style="margin-bottom: 15px;">
-                    <h4>${vuln.cveId}
-                        <span class="severity-badge severity-${vuln.severity.toLowerCase()}">${vuln.severity}</span>
-                        <span style="margin-left: 10px;">CVSS: ${vuln.cvssScore.toFixed(1)}</span>
-                    </h4>
-                    <p>${vuln.description}</p>
-                    <p><strong>發佈日期:</strong> ${new Date(vuln.publishedDate).toLocaleDateString('zh-TW')}</p>
-                    ${vuln.fixedVersion ? `<p><strong>修復版本:</strong> ${vuln.fixedVersion}</p>` : ''}
-                </div>
-                `).join('')}
-            </div>`;
-          }
-        }).join('')}
-    </div>
-
-    <div class="section">
-        <h2>安全建議</h2>
-        ${this.generateRecommendations(scanResults).map(rec => `<p>• ${rec}</p>`).join('')}
-    </div>
-
-    <div class="footer">
-        <p>本報告由 CVE 安全掃描工具產生</p>
-        <p>基於 NIST 國家漏洞資料庫 (NVD) 資料</p>
-    </div>
-</body>
-</html>`;
-  }
-
   private getTotalVulnerabilities(scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[]): number {
     return getUniqueTotalVulnerabilities(scanResults);
   }
@@ -510,6 +212,7 @@ export class ReportExportService {
     high: number;
     medium: number;
     low: number;
+    none: number;
     safe: number;
   } {
     const uniqueBreakdown = getUniqueSeverityBreakdown(scanResults);
@@ -519,6 +222,17 @@ export class ReportExportService {
       ...uniqueBreakdown,
       safe: safeCount
     };
+  }
+
+  /**
+   * 依掃描結果的實際資料來源產生頁尾說明
+   */
+  private getDataSourceLine(scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[]): string {
+    const { hasOsv, hasNist } = detectDataSources(scanResults);
+    if (hasOsv && !hasNist) return '資料來源：OSV.dev';
+    if (hasNist && !hasOsv) return '資料來源：NIST 國家漏洞資料庫 (NVD)';
+    // 兩者皆有，或零漏洞無從判斷時列出雙來源
+    return '資料來源：OSV.dev 與 NIST 國家漏洞資料庫 (NVD)';
   }
 
   private generateScanSummary(scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[]): string {
@@ -761,7 +475,14 @@ export class ReportExportService {
             padding: 4px 8px;
             border-radius: 4px;
         }
-        
+
+        .severity-none {
+            background-color: #95a5a6;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
         .version-cell {
             max-width: 100px;
             word-wrap: break-word;
@@ -1019,7 +740,7 @@ export class ReportExportService {
 
     <div class="footer">
         <p>本報告由 CVE 安全掃描工具產生</p>
-        <p>基於 NIST 國家漏洞資料庫 (NVD) 資料</p>
+        <p>${this.getDataSourceLine(scanResults)}</p>
         <p>遵循 SBOM (Software Bill of Materials) 標準</p>
     </div>
 </body>
@@ -1039,6 +760,7 @@ export class ReportExportService {
     if (severityBreakdown.high > 0) parts.push(`HIGH: ${severityBreakdown.high}`);
     if (severityBreakdown.medium > 0) parts.push(`MEDIUM: ${severityBreakdown.medium}`);
     if (severityBreakdown.low > 0) parts.push(`LOW: ${severityBreakdown.low}`);
+    if (severityBreakdown.none > 0) parts.push(`NONE: ${severityBreakdown.none}`);
 
     return `<div class="trivy-summary">Total: ${totalVulns} (${parts.join(', ')})</div>`;
   }
@@ -1103,8 +825,8 @@ export class ReportExportService {
             <td class="title-cell">
               <div class="description">${vuln.description.substring(0, 100)}${vuln.description.length > 100 ? '...' : ''}</div>
               <div class="cve-link">
-                <a href="https://nvd.nist.gov/vuln/detail/${vuln.cveId}" target="_blank">
-                  https://nvd.nist.gov/vuln/detail/${vuln.cveId}
+                <a href="${getAdvisoryUrl(vuln.cveId)}" target="_blank">
+                  ${getAdvisoryUrl(vuln.cveId)}
                 </a>
               </div>
             </td>
@@ -1385,103 +1107,5 @@ export class ReportExportService {
         }
       </script>
     `;
-  }
-
-  /**
-   * 匯出增強版 CycloneDX SBOM（包含 VEX 和改進的授權資訊）
-   */
-  exportEnhancedCycloneDX(
-    packages: PackageInfo[],
-    scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[],
-    scanTimestamp?: Date,
-    includeVulnerabilities: boolean = true
-  ): void {
-    // 增強套件的授權資訊
-    const enhancedPackages = this.licenseAnalysisService.enhancePackagesWithLicenseInfo(packages, 'package-lock');
-    
-    // 分析 VEX 狀態
-    const analyzedResults = includeVulnerabilities ? 
-      this.vexAnalysisService.analyzeVulnerabilities(scanResults, enhancedPackages) : 
-      scanResults;
-
-    // 產生 SBOM（官方庫序列化，格式由官方 schema 保證）
-    const json = this.cycloneDxSbomService.generateBomJson(enhancedPackages, analyzedResults, {
-      scanTimestamp,
-      includeVulnerabilities
-    });
-
-    const blob = new Blob([json], {
-      type: 'application/json;charset=utf-8'
-    });
-
-    const fileName = `enhanced-cyclonedx-${this.formatDate(new Date())}.json`;
-    saveAs(blob, fileName);
-  }
-
-  /**
-   * 匯出增強版 SPDX SBOM（包含改進的授權資訊）
-   */
-  exportEnhancedSpdx(
-    packages: PackageInfo[],
-    scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[],
-    scanTimestamp?: Date,
-    includeVulnerabilities: boolean = true
-  ): void {
-    // 增強套件的授權資訊
-    const enhancedPackages = this.licenseAnalysisService.enhancePackagesWithLicenseInfo(packages, 'package-lock');
-    
-    // 產生 SBOM（含增強授權資訊；VEX 無法在 SPDX 2.3 表達，如需 VEX 請用 CycloneDX）
-    const json = this.spdxSbomService.generateSbomJson(enhancedPackages, scanResults, {
-      scanTimestamp,
-      includeVulnerabilities
-    });
-
-    const blob = new Blob([json], {
-      type: 'application/json;charset=utf-8'
-    });
-
-    const fileName = `enhanced-spdx-${this.formatDate(new Date())}.json`;
-    saveAs(blob, fileName);
-  }
-
-
-
-
-
-
-
-  /**
-   * 匯出授權相容性報告
-   */
-  exportLicenseCompatibilityReport(packages: PackageInfo[]): void {
-    const enhancedPackages = this.licenseAnalysisService.enhancePackagesWithLicenseInfo(packages);
-    const stats = this.licenseAnalysisService.getLicenseStatistics(enhancedPackages);
-    const compatibility = this.licenseAnalysisService.checkLicenseCompatibility(enhancedPackages);
-
-    const report = {
-      metadata: {
-        reportType: 'License Compatibility Analysis',
-        generatedAt: new Date().toISOString(),
-        toolName: 'CVE Scanner Enhanced',
-        version: '1.1.0'
-      },
-      summary: stats,
-      compatibility: compatibility,
-      packages: enhancedPackages.map(pkg => ({
-        name: pkg.name,
-        version: pkg.version,
-        license: pkg.license,
-        licenseDeclared: pkg.licenseDeclared,
-        licenseConcluded: pkg.licenseConcluded,
-        licenseSource: pkg.licenseSource
-      }))
-    };
-
-    const blob = new Blob([JSON.stringify(report, null, 2)], {
-      type: 'application/json;charset=utf-8'
-    });
-
-    const fileName = `license-compatibility-${this.formatDate(new Date())}.json`;
-    saveAs(blob, fileName);
   }
 }

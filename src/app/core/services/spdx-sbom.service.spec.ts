@@ -90,6 +90,18 @@ describe('SpdxSbomService', () => {
     expect(jest.externalRefs.some((r: any) => r.referenceCategory === 'SECURITY')).toBeFalse();
   });
 
+  it('GHSA/OSV 編號的 SECURITY externalRef 連到 osv.dev', () => {
+    const ghsaVuln: Vulnerability = { ...vuln, cveId: 'GHSA-35jh-r3h4-6jhm' };
+    const sbom = JSON.parse(service.generateSbomJson(
+      packages,
+      [{ packageName: 'lodash', vulnerabilities: [ghsaVuln] }],
+      { includeVulnerabilities: true }
+    ));
+    const lodash = sbom.packages.find((p: any) => p.name === 'lodash');
+    const secRefs = lodash.externalRefs.filter((r: any) => r.referenceCategory === 'SECURITY');
+    expect(secRefs[0].referenceLocator).toBe('https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm');
+  });
+
   it('purl 使用 PACKAGE-MANAGER 分類（連字號）', () => {
     const sbom = generate();
     const ng = sbom.packages.find((p: any) => p.name === '@angular/core');
