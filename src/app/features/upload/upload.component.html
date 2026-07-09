@@ -290,6 +290,10 @@
                   <mat-icon>description</mat-icon>
                   <span>SPDX JSON</span>
                 </button>
+                <button mat-menu-item (click)="exportPackageListAsHtml()">
+                  <mat-icon>html</mat-icon>
+                  <span>HTML (人類可讀)</span>
+                </button>
                 <mat-divider></mat-divider>
                 <div mat-menu-item disabled class="menu-info">
                   <small>📋 純套件清單格式 (無漏洞資訊)</small>

@@ -9,7 +9,7 @@ import {
 } from '../../shared/utils/vulnerability-count-utils';
 import { CycloneDxSbomService } from './cyclonedx-sbom.service';
 import { SpdxSbomService } from './spdx-sbom.service';
-import { getAdvisoryUrl } from '../../shared/utils/sbom-utils';
+import { getAdvisoryUrl, buildNpmPurl } from '../../shared/utils/sbom-utils';
 
 @Injectable({
   providedIn: 'root'
@@ -185,22 +185,155 @@ export class ReportExportService {
   }
 
   /**
-   * 匯出 SBOM HTML 格式 (Trivy 風格)
+   * 匯出掃描結果報告 HTML 格式 (Trivy 風格，供人類閱讀)
    */
-  exportAsSbomHtml(
+  exportAsScanReportHtml(
     packages: PackageInfo[],
     scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[],
     scanTimestamp?: Date,
     includeVulnerabilities: boolean = true
   ): void {
-    const html = this.generateSbomHtmlReport(packages, scanResults, scanTimestamp, includeVulnerabilities);
+    const html = this.generateScanReportHtml(packages, scanResults, scanTimestamp, includeVulnerabilities);
 
     const blob = new Blob([html], {
       type: 'text/html;charset=utf-8'
     });
 
-    const fileName = `sbom-report-${this.formatDate(new Date())}.html`;
+    const fileName = `scan-report-${this.formatDate(new Date())}.html`;
     saveAs(blob, fileName);
+  }
+
+  /**
+   * 匯出 SBOM HTML 格式 (人類可讀，呈現套件的 License 與 PURL)
+   */
+  exportSbomAsHtml(
+    packages: PackageInfo[],
+    generatedAt: Date = new Date()
+  ): void {
+    const html = this.generateSbomHtml(packages, generatedAt);
+
+    const blob = new Blob([html], {
+      type: 'text/html;charset=utf-8'
+    });
+
+    const fileName = `sbom-${this.formatDate(new Date())}.html`;
+    saveAs(blob, fileName);
+  }
+
+  /**
+   * 產生人類可讀的 SBOM HTML (CycloneDX 1.6 內容：套件 / 版本 / License / PURL)
+   */
+  private generateSbomHtml(packages: PackageInfo[], generatedAt: Date): string {
+    const direct = packages.filter(p => p.type !== 'transitive');
+    const transitive = packages.filter(p => p.type === 'transitive');
+
+    const section = (title: string, list: PackageInfo[]): string => {
+      if (list.length === 0) {
+        return '';
+      }
+      const rows = list.map(pkg => {
+        const license = pkg.licenseConcluded || pkg.licenseDeclared || pkg.license || '—';
+        const purl = buildNpmPurl(pkg.name, pkg.version).toString();
+        return `
+      <tr>
+        <td>${this.escapeHtml(pkg.name)}</td>
+        <td><code>${this.escapeHtml(pkg.version)}</code></td>
+        <td>${this.escapeHtml(license)}</td>
+        <td class="purl"><code>${this.escapeHtml(purl)}</code></td>
+      </tr>`;
+      }).join('');
+      return `
+  <h2>${title}<span class="count">${list.length}</span></h2>
+  <table>
+    <thead>
+      <tr><th>套件</th><th>版本</th><th>License</th><th>PURL</th></tr>
+    </thead>
+    <tbody>${rows}
+    </tbody>
+  </table>`;
+    };
+
+    return `<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<title>SBOM 報表</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    margin: 0; padding: 40px; background: #f5f7fa; color: #2c3e50; line-height: 1.6;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 24px; border-bottom: 3px solid #3498db; padding-bottom: 12px; }
+  h2 { font-size: 18px; margin-top: 40px; }
+  h2 .count {
+    display: inline-block; margin-left: 10px; padding: 2px 10px;
+    background: #3498db; color: white; border-radius: 12px; font-size: 13px; font-weight: normal;
+  }
+  .meta {
+    background: white; padding: 20px 24px; border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin: 20px 0;
+  }
+  .meta-row { display: flex; padding: 6px 0; border-bottom: 1px solid #ecf0f1; }
+  .meta-row:last-child { border-bottom: none; }
+  .meta-label { width: 180px; color: #7f8c8d; font-weight: 600; }
+  .meta-value { flex: 1; word-break: break-all; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 20px 0; }
+  .stat-card {
+    background: white; padding: 20px; border-radius: 8px; text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .stat-number { font-size: 36px; font-weight: 700; color: #3498db; }
+  .stat-label { color: #7f8c8d; font-size: 13px; margin-top: 4px; }
+  table {
+    width: 100%; border-collapse: collapse; background: white; border-radius: 8px;
+    overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); font-size: 13px;
+  }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #ecf0f1; }
+  th { background: #34495e; color: white; font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover { background: #f8f9fa; }
+  code {
+    background: #ecf0f1; padding: 2px 6px; border-radius: 3px;
+    font-family: "SF Mono", Consolas, monospace; font-size: 12px;
+  }
+  .purl { max-width: 400px; word-break: break-all; }
+  @media print {
+    body { background: white; padding: 20px; }
+    .stat-card, .meta, table { box-shadow: none; border: 1px solid #ddd; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>SBOM 報表</h1>
+
+  <div class="meta">
+    <div class="meta-row"><div class="meta-label">SBOM 格式</div><div class="meta-value">CycloneDX 1.6</div></div>
+    <div class="meta-row"><div class="meta-label">產生時間</div><div class="meta-value">${generatedAt.toLocaleString('zh-TW')}</div></div>
+    <div class="meta-row"><div class="meta-label">產生工具</div><div class="meta-value">CVE 安全掃描工具</div></div>
+  </div>
+
+  <div class="stats">
+    <div class="stat-card"><div class="stat-number">${packages.length}</div><div class="stat-label">元件總數</div></div>
+    <div class="stat-card"><div class="stat-number">${direct.length}</div><div class="stat-label">直接依賴</div></div>
+    <div class="stat-card"><div class="stat-number">${transitive.length}</div><div class="stat-label">間接依賴</div></div>
+  </div>
+${section('直接依賴', direct)}
+${section('間接依賴', transitive)}
+</div>
+</body>
+</html>`;
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   private getTotalVulnerabilities(scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[]): number {
@@ -324,9 +457,9 @@ export class ReportExportService {
 
 
   /**
-   * 產生 SBOM HTML 報告 (Trivy 風格)
+   * 產生漏洞掃描結果報告 HTML (Trivy 風格)
    */
-  private generateSbomHtmlReport(
+  private generateScanReportHtml(
     packages: PackageInfo[],
     scanResults: {packageName: string, vulnerabilities: Vulnerability[]}[],
     scanTimestamp?: Date,
@@ -348,7 +481,7 @@ export class ReportExportService {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SBOM 安全報告</title>
+    <title>漏洞掃描結果報告</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -712,8 +845,8 @@ export class ReportExportService {
 </head>
 <body>
     <div class="header">
-        <h1>🛡️ SBOM 安全掃描報告</h1>
-        <div class="subtitle">軟體物料清單與漏洞分析</div>
+        <h1>🛡️ 漏洞掃描結果報告</h1>
+        <div class="subtitle">套件安全漏洞分析</div>
         ${scanTimestamp ? `<p>掃描時間: ${scanTimestamp.toLocaleString('zh-TW')}</p>` : ''}
         <p>匯出時間: ${new Date().toLocaleString('zh-TW')}</p>
         <p>掃描了 ${packages.length} 個套件</p>
@@ -741,7 +874,6 @@ export class ReportExportService {
     <div class="footer">
         <p>本報告由 CVE 安全掃描工具產生</p>
         <p>${this.getDataSourceLine(scanResults)}</p>
-        <p>遵循 SBOM (Software Bill of Materials) 標準</p>
     </div>
 </body>
 </html>`;

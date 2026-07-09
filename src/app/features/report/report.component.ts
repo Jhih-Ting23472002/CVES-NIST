@@ -332,8 +332,8 @@ export class ReportComponent implements OnInit {
     this.reportExportService.exportAsSpdx(this.packages, this.scanResults, this.scanTimestamp, includeVulnerabilities);
   }
 
-  exportAsSbomHtml(): void {
-    this.reportExportService.exportAsSbomHtml(this.packages, this.scanResults, this.scanTimestamp, true);
+  exportAsScanReportHtml(): void {
+    this.reportExportService.exportAsScanReportHtml(this.packages, this.scanResults, this.scanTimestamp, true);
   }
 
   startNewScan(): void {

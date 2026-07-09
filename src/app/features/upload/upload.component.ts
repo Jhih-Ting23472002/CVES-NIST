@@ -426,6 +426,23 @@ export class UploadComponent implements OnInit {
   }
 
 
+  exportPackageListAsHtml(): void {
+    if (this.packages.length === 0) {
+      this.snackBar.open('沒有套件可以匯出', '關閉', {
+        duration: 3000,
+        verticalPosition: 'top'
+      });
+      return;
+    }
+
+    this.reportExportService.exportSbomAsHtml(this.packages);
+
+    this.snackBar.open('SBOM HTML 匯出成功', '關閉', {
+      duration: 3000,
+      verticalPosition: 'top'
+    });
+  }
+
   // 檢查是否可以匯出 SBOM
   canExportSbom(): boolean {
     return this.packages.length > 0;
